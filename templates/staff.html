@@ -674,7 +674,7 @@ function tick(){
   document.getElementById('clock-time').textContent=[n.getHours(),n.getMinutes(),n.getSeconds()].map(x=>String(x).padStart(2,'0')).join(':');
   document.getElementById('clock-date').textContent=n.getFullYear()+' / '+(n.getMonth()+1)+' / '+n.getDate()+staffT('date.week_wrap').replace('{0}',DAYS[n.getDay()]);
 }
-setInterval(tick,1000);tick();
+setInterval(tick,1000);
 
 (async()=>{
   const [settingsData, meRes] = await Promise.all([
@@ -4890,6 +4890,7 @@ const STAFF_I18N = {
 };
 let _staffLang = localStorage.getItem('adminLang') || 'zh-TW';
 function staffT(k) { return (STAFF_I18N[_staffLang]||STAFF_I18N['zh-TW'])[k] || k; }
+tick();
 
 // Inject X-Lang header into all fetch calls so backend can return translated messages
 (function(){
