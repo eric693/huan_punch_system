@@ -13752,7 +13752,7 @@ function openPunchRecModal(id) {
 function closePunchRecModal() { document.getElementById('punch-rec-modal').style.display = 'none'; }
 async function savePunchRec() {
   const id   = document.getElementById('prm-id').value;
-  const body = { punch_type: document.getElementById('prm-type').value, punched_at: document.getElementById('prm-time').value, manual_by: document.getElementById('prm-by').value.trim(), note: document.getElementById('prm-note').value.trim() };
+  const body = { punch_type: document.getElementById('prm-type').value, punched_at: document.getElementById('prm-time').value + '+08:00', manual_by: document.getElementById('prm-by').value.trim(), note: document.getElementById('prm-note').value.trim() };
   const { ok } = await api(`/api/punch/records/${id}`, apiPUT(body));
   if (!ok) return;
   closePunchRecModal(); showToast('已更新', 'success'); await loadPunchRecords();
@@ -13787,10 +13787,10 @@ async function loadManualRecords() {
 async function submitManualPunch() {
   const staff_id   = document.getElementById('man-staff').value;
   const punch_type = document.getElementById('man-type').value;
-  const punched_at = document.getElementById('man-time').value;
+  const punched_at = document.getElementById('man-time').value + '+08:00';
   const manual_by  = document.getElementById('man-by').value.trim();
   const note       = document.getElementById('man-note').value.trim();
-  if (!staff_id || !punched_at) { showToast(t('manual.fill_all'), 'error'); return; }
+  if (!staff_id || !document.getElementById('man-time').value) { showToast(t('manual.fill_all'), 'error'); return; }
   const { ok } = await api('/api/punch/records', apiJSON({ staff_id: parseInt(staff_id), punch_type, punched_at, manual_by, note }));
   if (!ok) return;
   showToast(t('manual.success'), 'success'); document.getElementById('man-note').value = ''; await loadManualRecords();
