@@ -508,6 +508,9 @@ def init_db():
         "CREATE INDEX IF NOT EXISTS idx_finance_records_date_type    ON finance_records(record_date, type)",
         "CREATE INDEX IF NOT EXISTS idx_announcements_status         ON announcements(status, created_at)",
         "CREATE INDEX IF NOT EXISTS idx_public_holidays_date         ON public_holidays(date)",
+        # 每日補貼（餐費、司機補貼）
+        "ALTER TABLE punch_staff ADD COLUMN IF NOT EXISTS meal_allowance   NUMERIC(12,2) DEFAULT 0",
+        "ALTER TABLE punch_staff ADD COLUMN IF NOT EXISTS driver_allowance NUMERIC(12,2) DEFAULT 0",
     ]
     for sql in migrations:
         try:
@@ -2729,6 +2732,118 @@ def _do_line_punch(staff, user_id, lat, lng, forced_type, PUNCH_LABEL):
     _send_line_punch(user_id, _lmsg('punch_success', _lang(),
         label=label, name=staff['name'],
         time=now.strftime('%Y/%m/%d %H:%M'), gps=gps_info))
+
+    # 打卡成功後附上當日薪資預估（下班打卡或有打卡紀錄時才顯示）
+    try:
+        pay = _calc_today_pay(staff)
+        if pay['has_in']:
+            lines = ['', '─────────────────', '💰 當日薪資預估']
+            if pay['hours_worked'] > 0:
+                lines.append(f'  工時：{pay["hours_worked"]}h')
+            lines.append(f'  基本日薪：${int(pay["daily_pay"]):,}')
+            if pay['ot_hours'] > 0:
+                lines.append(f'  加班費（{pay["ot_hours"]}h）：${int(pay["ot_pay"]):,}')
+            if pay['meal'] > 0:
+                lines.append(f'  餐費補貼：${int(pay["meal"]):,}')
+            if pay['driver'] > 0:
+                lines.append(f'  司機補貼：${int(pay["driver"]):,}')
+            lines.append(f'  小計：${int(pay["total"]):,}')
+            if not pay['has_out']:
+                lines.append('  （尚未下班，僅供參考）')
+            _send_line_punch(user_id, '\n'.join(lines))
+    except Exception:
+        pass
+
+
+def _calc_today_pay(staff):
+    """
+    計算員工當日薪資明細（供打卡後即時回報）。
+    回傳 dict:
+      hours_worked  – 實際工時（含加班）
+      daily_pay     – 當日基本薪資
+      ot_pay        – 加班費
+      meal          – 餐費補貼
+      driver        – 司機補貼
+      total         – 小計
+    """
+    from datetime import datetime as _dt5, timezone as _tz5, timedelta as _td5
+    TW5 = _tz5(_td5(hours=8))
+    today_str = _dt5.now(TW5).strftime('%Y-%m-%d')
+
+    with get_db() as conn:
+        rows = conn.execute("""
+            SELECT punch_type, punched_at
+            FROM punch_records
+            WHERE staff_id=%s
+              AND (punched_at AT TIME ZONE 'Asia/Taipei')::date = %s::date
+              AND deleted_at IS NULL
+            ORDER BY punched_at ASC
+        """, (staff['id'], today_str)).fetchall()
+
+    ins      = []
+    outs     = []
+    b_outs   = []
+    b_ins    = []
+    for r in rows:
+        pa = r['punched_at']
+        if pa.tzinfo is None:
+            pa = pa.replace(tzinfo=_tz5.utc)
+        pa = pa.astimezone(TW5)
+        pt = r['punch_type']
+        if pt == 'in':        ins.append(pa)
+        elif pt == 'out':     outs.append(pa)
+        elif pt == 'break_out': b_outs.append(pa)
+        elif pt == 'break_in':  b_ins.append(pa)
+
+    has_in = bool(ins)
+
+    # 計算工時
+    hours_worked = 0.0
+    if ins and outs:
+        gross_mins = (max(outs) - min(ins)).total_seconds() / 60
+        break_mins = 0.0
+        for bo in b_outs:
+            matched = [bi for bi in b_ins if bi > bo]
+            if matched:
+                break_mins += (min(matched) - bo).total_seconds() / 60
+        net_mins     = max(0.0, gross_mins - break_mins)
+        hours_worked = round(net_mins / 60, 2)
+
+    salary_type  = staff.get('salary_type') or 'monthly'
+    daily_hours  = float(staff.get('daily_hours') or 8)
+    ot_rate1     = float(staff.get('ot_rate1') or 1.33)
+    ot_rate2     = float(staff.get('ot_rate2') or 1.67)
+    meal         = float(staff.get('meal_allowance') or 0)   if has_in else 0.0
+    driver       = float(staff.get('driver_allowance') or 0) if has_in else 0.0
+
+    # 每小時基本薪資
+    if salary_type == 'hourly':
+        base_hourly = float(staff.get('hourly_rate') or 0)
+        daily_pay   = round(hours_worked * base_hourly, 0) if hours_worked else 0.0
+    else:
+        base_salary = float(staff.get('base_salary') or 0)
+        base_hourly = base_salary / (30 * daily_hours) if daily_hours else 0.0
+        daily_pay   = round(base_salary / 30, 0) if has_in else 0.0
+
+    # 加班費
+    ot_hours = max(0.0, hours_worked - daily_hours)
+    h1 = min(ot_hours, 2.0)
+    h2 = max(0.0, ot_hours - 2.0)
+    ot_pay = round(h1 * base_hourly * ot_rate1 + h2 * base_hourly * ot_rate2, 0)
+
+    total = round(daily_pay + ot_pay + meal + driver, 0)
+
+    return {
+        'hours_worked': hours_worked,
+        'daily_pay':    daily_pay,
+        'ot_hours':     round(ot_hours, 2),
+        'ot_pay':       ot_pay,
+        'meal':         meal,
+        'driver':       driver,
+        'total':        total,
+        'has_in':       has_in,
+        'has_out':      bool(outs),
+    }
 
 
 def _send_status(staff, user_id):
@@ -6412,13 +6527,15 @@ def api_salary_staff_list():
                    position_title, hire_date, birth_date, base_salary, insured_salary,
                    daily_hours, ot_rate1, ot_rate2, salary_type, hourly_rate,
                    vacation_quota, salary_notes, salary_item_ids, salary_item_overrides,
-                   national_id, gender, insurance_type, address
+                   national_id, gender, insurance_type, address,
+                   meal_allowance, driver_allowance
             FROM punch_staff ORDER BY name
         """).fetchall()
     result = []
     for r in rows:
         d = dict(r)
-        for f in ['base_salary','insured_salary','daily_hours','ot_rate1','ot_rate2','hourly_rate']:
+        for f in ['base_salary','insured_salary','daily_hours','ot_rate1','ot_rate2','hourly_rate',
+                  'meal_allowance','driver_allowance']:
             if d.get(f) is not None: d[f] = float(d[f])
         if d.get('hire_date'):  d['hire_date']  = d['hire_date'].isoformat()
         if d.get('birth_date'): d['birth_date'] = d['birth_date'].isoformat()
@@ -6446,7 +6563,8 @@ def api_salary_staff_update(sid):
               ot_rate1=%s, ot_rate2=%s, salary_type=%s,
               hourly_rate=%s, vacation_quota=%s, salary_notes=%s,
               salary_item_ids=%s, salary_item_overrides=%s,
-              national_id=%s, gender=%s, insurance_type=%s, address=%s
+              national_id=%s, gender=%s, insurance_type=%s, address=%s,
+              meal_allowance=%s, driver_allowance=%s
             WHERE id=%s
         """, (_s('employee_code'), _s('department'), _s('position_title'),
               _s('hire_date'),
@@ -6459,6 +6577,7 @@ def api_salary_staff_update(sid):
               (b.get('gender') or '').strip(),
               (b.get('insurance_type') or 'regular').strip(),
               (b.get('address') or '').strip(),
+              _f('meal_allowance'), _f('driver_allowance'),
               sid))
         row = conn.execute("SELECT * FROM punch_staff WHERE id=%s", (sid,)).fetchone()
     return jsonify(punch_staff_row(row)) if row else ('', 404)
