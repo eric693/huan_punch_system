@@ -1,5 +1,6 @@
 import os
 import hashlib
+import hmac
 from contextlib import contextmanager
 
 import psycopg
@@ -9,8 +10,10 @@ _raw = os.environ.get('DATABASE_URL', '')
 DATABASE_URL = _raw.replace('postgres://', 'postgresql://', 1) if _raw.startswith('postgres://') else _raw
 
 
+_PW_SALT = b'huan-punch-pw-salt-v1'
+
 def _hash_pw(pw: str) -> str:
-    return hashlib.sha256(pw.encode()).hexdigest()
+    return hashlib.pbkdf2_hmac('sha256', pw.encode(), _PW_SALT, 100_000).hex()
 
 
 _pool = None

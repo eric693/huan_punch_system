@@ -530,13 +530,6 @@ def init_db():
                     VALUES (%s,%s,'超級管理員',%s,TRUE,TRUE)
                 """, ('admin', _hash_pw(ADMIN_PASSWORD), all_modules))
                 print("[OK] Default super admin seeded (username: admin)")
-            else:
-                # Keep built-in admin password in sync with ADMIN_PASSWORD env var
-                conn.execute("""
-                    UPDATE admin_accounts
-                    SET password_hash=%s, active=TRUE
-                    WHERE username='admin' AND is_super=TRUE
-                """, (_hash_pw(ADMIN_PASSWORD),))
     except Exception as e:
         print(f"[WARN] admin seed: {e}")
 
@@ -668,6 +661,7 @@ def admin_login():
                 if isinstance(perms, str):
                     try: perms = _json.loads(perms)
                     except: perms = []
+                session.clear()
                 session.permanent             = True
                 session['logged_in']          = True
                 session['admin_id']           = row['id']
@@ -705,7 +699,7 @@ def _admin_row(r):
     if not r: return None
     d = dict(r)
     d.pop('password_hash', None)
-    if 'password_plain' not in d: d['password_plain'] = ''
+    d.pop('password_plain', None)
     perms = d.get('permissions')
     if isinstance(perms, str):
         try: d['permissions'] = _json.loads(perms)
@@ -744,9 +738,9 @@ def api_admin_account_create():
     with get_db() as conn:
         try:
             row = conn.execute("""
-                INSERT INTO admin_accounts (username, password_hash, password_plain, display_name, permissions, is_super, active)
-                VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING *
-            """, (username, _hash_pw(password), password, b.get('display_name','').strip(),
+                INSERT INTO admin_accounts (username, password_hash, display_name, permissions, is_super, active)
+                VALUES (%s,%s,%s,%s,%s,%s) RETURNING *
+            """, (username, _hash_pw(password), b.get('display_name','').strip(),
                   _json.dumps(perms), bool(b.get('is_super', False)), True)).fetchone()
         except Exception as e:
             if 'unique' in str(e).lower(): return jsonify({'error': '帳號已存在'}), 409
@@ -765,9 +759,9 @@ def api_admin_account_update(aid):
         if password:
             if len(password) < 4: return jsonify({'error': '密碼至少 4 個字元'}), 400
             row = conn.execute("""
-                UPDATE admin_accounts SET username=%s, password_hash=%s, password_plain=%s, display_name=%s,
+                UPDATE admin_accounts SET username=%s, password_hash=%s, display_name=%s,
                   permissions=%s, is_super=%s, active=%s WHERE id=%s RETURNING *
-            """, (username, _hash_pw(password), password, b.get('display_name','').strip(),
+            """, (username, _hash_pw(password), b.get('display_name','').strip(),
                   _json.dumps(perms), bool(b.get('is_super', False)),
                   bool(b.get('active', True)), aid)).fetchone()
         else:
@@ -826,7 +820,7 @@ def punch_staff_row(row):
     d = dict(row)
     d['has_password'] = bool(d.get('password_hash'))
     d.pop('password_hash', None)
-    if 'password_plain' not in d: d['password_plain'] = ''
+    d.pop('password_plain', None)
     if d.get('created_at'): d['created_at'] = d['created_at'].isoformat()
     if d.get('hire_date'):  d['hire_date']  = d['hire_date'].isoformat()
     if d.get('birth_date'): d['birth_date'] = d['birth_date'].isoformat()
@@ -944,6 +938,7 @@ def api_punch_login():
         ).fetchone()
     if not staff or staff['password_hash'] != _hash_pw(password):
         return jsonify({'error': '帳號或密碼錯誤'}), 401
+    session.clear()
     session['punch_staff_id']   = staff['id']
     session['punch_staff_name'] = staff['name']
     return jsonify({'id': staff['id'], 'name': staff['name'], 'role': staff['role']})
@@ -1387,13 +1382,13 @@ def api_punch_staff_create():
         with get_db() as conn:
             row = conn.execute("""
                 INSERT INTO punch_staff
-                  (name, username, password_hash, password_plain, role, employee_code,
+                  (name, username, password_hash, role, employee_code,
                    department, position_title, hire_date, birth_date,
                    national_id, gender, address,
                    bank_code, bank_name, bank_branch, bank_account, account_holder,
                    active)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *
-            """, (name, username, _hash_pw(password), password, role, employee_code,
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *
+            """, (name, username, _hash_pw(password), role, employee_code,
                   department, position_title, hire_date, birth_date,
                   national_id, gender, address,
                   bank_code, bank_name, bank_branch, bank_account, account_holder,
@@ -1511,6 +1506,10 @@ def api_punch_record_manual():
         return jsonify({'error': '缺少必要欄位'}), 400
     if punch_type not in ('in', 'out', 'break_out', 'break_in'):
         return jsonify({'error': '無效的打卡類型'}), 400
+    try:
+        _dt.fromisoformat(str(punched_at).replace('Z', '+00:00'))
+    except (ValueError, TypeError):
+        return jsonify({'error': '無效的時間格式'}), 400
 
     with get_db() as conn:
         # ── 一次撈當日所有打卡記錄，再做驗證 ──
@@ -1646,8 +1645,7 @@ def api_punch_summary():
     from datetime import date as _date2, timedelta as _td2, datetime as _dt2
     import calendar as _cal2
     _y2, _m2 = int(month[:4]), int(month[5:])
-    _next_date2 = (_date2(_y2, _m2, _cal2.monthrange(_y2, _m2)[1]) + _td2(days=1)).isoformat()
-    _range_end  = (_date2.fromisoformat(_next_date2) + _td2(days=1)).isoformat()
+    _range_end  = (_date2(_y2, _m2, _cal2.monthrange(_y2, _m2)[1]) + _td2(days=1)).isoformat()
 
     with get_db() as conn:
         rows = conn.execute("""
@@ -2527,7 +2525,11 @@ def _handle_line_punch_event(event, cfg):
         if msg_type == 'text':
             text = msg.get('text', '').strip()
             if text.startswith('綁定 ') or text.startswith('绑定 '):
-                username = text.split(' ', 1)[1].strip()
+                parts = text.split(' ', 2)
+                if len(parts) < 3:
+                    _send_line_punch(user_id, _lmsg('bind_format_error', 'zh-TW'))
+                    return
+                username, password = parts[1].strip(), parts[2].strip()
                 if username in ('帳號', '您的帳號', '[您的帳號]', 'username', '帳號名稱'):
                     _send_line_punch(user_id, _lmsg('bind_placeholder_error', 'zh-TW'))
                     return
@@ -2536,7 +2538,7 @@ def _handle_line_punch_event(event, cfg):
                         "SELECT * FROM punch_staff WHERE username=%s AND active=TRUE",
                         (username,)
                     ).fetchone()
-                if not candidate:
+                if not candidate or candidate['password_hash'] != _hash_pw(password):
                     _send_line_punch(user_id, _lmsg('bind_account_not_found', 'zh-TW', username=username))
                     return
                 if candidate['line_user_id']:
@@ -7720,7 +7722,7 @@ def api_dashboard_attendance_heatmap():
             SELECT lr.start_date, lr.end_date, COUNT(*) as cnt
             FROM leave_requests lr
             WHERE lr.status='approved'
-              AND TO_CHAR(lr.start_date,'YYYY-MM')=%s OR TO_CHAR(lr.end_date,'YYYY-MM')=%s
+              AND (TO_CHAR(lr.start_date,'YYYY-MM')=%s OR TO_CHAR(lr.end_date,'YYYY-MM')=%s)
             GROUP BY lr.start_date, lr.end_date
         """, (month, month)).fetchall()
 

@@ -841,7 +841,7 @@ async function doPunch(type){
   finally{_PUNCH_BTNS.forEach(id=>{const b=document.getElementById(id);if(b)b.disabled=false;});}
 }
 async function loadTodayLog(){
-  const r=await fetch('/api/punch/today');const list=await r.json();
+  const r=await fetch('/api/punch/today');if(!r.ok)return;const list=await r.json();
   const wrap=document.getElementById('today-log');
   document.getElementById('today-log-wrap').style.display='';
   if(!list.length){wrap.innerHTML='<div class="log-empty">'+staffT('punch.no_records')+'</div>';return;}
@@ -879,7 +879,7 @@ async function submitPunchReq(){
   }catch(e){showToast(staffT('req.net_err'),'err');}
 }
 async function loadMyReqs(){
-  const res=await fetch('/api/punch/request/my');const list=await res.json();
+  const res=await fetch('/api/punch/request/my');if(!res.ok)return;const list=await res.json();
   const wrap=document.getElementById('my-reqs');const body=document.getElementById('my-reqs-list');
   if(!list.length){wrap.style.display='none';return;}
   wrap.style.display='';
@@ -1302,7 +1302,7 @@ async function submitOTRequest(){
 async function loadMyOTRequests(){
   const wrap=document.getElementById('my-ot-list');
   wrap.innerHTML=Array(2).fill(0).map(()=>'<div style="border:1.5px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:10px;padding:12px 14px"><div class="skel-block" style="height:14px;width:60%;margin-bottom:8px"></div><div class="skel-block" style="height:12px;width:40%"></div></div>').join('');
-  const res=await fetch('/api/overtime/my-requests');const list=await res.json();
+  const res=await fetch('/api/overtime/my-requests');if(!res.ok){wrap.innerHTML='';return;}const list=await res.json();
   if(!list.length){wrap.innerHTML='<div style="text-align:center;color:var(--muted);font-size:13px;padding:16px">'+staffT('ot.no_records')+'</div>';return;}
   wrap.innerHTML=list.map(r=>{
     const sc=OT_SC[r.status]||'var(--muted)';const sl=OT_SL[r.status]||r.status;
@@ -2726,7 +2726,7 @@ async function loadMyTravel() {
           <div style="font-size:14px;font-weight:700;color:var(--navy)">${esc(t.title)}</div>
           <span style="font-size:11px;font-weight:700;color:${MYT_STATUS_COLOR[t.status]||'#888'}">${MYT_STATUS_LABEL[t.status]||t.status}</span>
         </div>
-        <div style="font-size:12px;color:var(--muted);margin-bottom:4px"><i class="bi bi-geo-alt-fill"></i> ${esc(t.destination)}　${t.start_date} ~ ${t.end_date}（${days}${staffT('myt.days_sfx')}）</div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:4px"><i class="bi bi-geo-alt-fill"></i> ${esc(t.destination)}　${esc(t.start_date)} ~ ${esc(t.end_date)}（${days}${staffT('myt.days_sfx')}）</div>
         ${t.purpose ? `<div style="font-size:12px;color:var(--muted);margin-bottom:4px"><i class="bi bi-pencil-fill"></i> ${esc(t.purpose)}</div>` : ''}
         ${parseFloat(t.advance_amount||0) > 0 ? `<div style="font-size:12px;color:var(--muted);margin-bottom:6px">${staffT('myt.advance_pfx')} ${Number(t.advance_amount).toLocaleString()}</div>` : ''}
         ${t.review_note ? `<div style="font-size:12px;color:#c0392b;margin-bottom:6px">${staffT('myt.review_note')}${esc(t.review_note)}</div>` : ''}
