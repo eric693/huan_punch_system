@@ -314,7 +314,7 @@ html,body{min-height:100%;background:var(--navy);font-family:"Noto Sans TC","Not
       <!-- 加班申請 tab -->
       <div id="panel-overtime" class="tab-body" style="display:none">
         <div style="margin-bottom:14px;padding:10px 14px;background:var(--orange-light);border-radius:8px;border:1px solid #f5c0a0;font-size:12px;color:var(--text)">
-          <strong data-i18n-staff="hint.labor_law_ot_title">勞基法加班費</strong><span data-i18n-staff="hint.labor_law_ot_detail">：前 2 小時 × 1.33、第 3 小時起 × 1.67</span>
+          <strong data-i18n-staff="hint.labor_law_ot_title">勞基法加班費</strong><span data-i18n-staff="hint.labor_law_ot_detail">：前 2 小時 × 1.34、第 3 小時起 × 1.67</span>
         </div>
         <div style="background:#fff;border-radius:10px;border:1.5px solid var(--border);padding:16px;margin-bottom:16px">
           <div class="section-label" style="margin-bottom:12px" data-i18n-staff="form.ot_new">新增加班申請</div>
@@ -327,10 +327,10 @@ html,body{min-height:100%;background:var(--navy);font-family:"Noto Sans TC","Not
           <div style="margin-bottom:10px">
             <div class="fl" data-i18n-staff="field.ot_day_type">加班日別</div>
             <select class="fi" id="ot-day-type" onchange="updateOTHoursPreview()" style="margin-bottom:0">
-              <option value="weekday" data-i18n-staff="opt.ot_weekday">平日（前2h×1.33，後續×1.67）</option>
+              <option value="weekday" data-i18n-staff="opt.ot_weekday">平日（前2h×1.34，後續×1.67）</option>
               <option value="rest_day" data-i18n-staff="opt.ot_rest_day">休息日（最少4h）</option>
-              <option value="holiday" data-i18n-staff="opt.ot_holiday">國定假日（全程×2倍）</option>
-              <option value="special" data-i18n-staff="opt.ot_special">例假日（全程×2倍）</option>
+              <option value="holiday" data-i18n-staff="opt.ot_holiday" style="display:none">國定假日（全程×2倍）</option>
+              <option value="special" data-i18n-staff="opt.ot_special" style="display:none">例假日（全程×2倍）</option>
             </select>
           </div>
           <div style="margin-bottom:14px"><div class="fl" data-i18n-staff="field.ot_reason">加班原因 *</div><input class="fi" id="ot-reason" data-i18n-ph="ph.example_ot" placeholder="例：客戶急件、備料作業" style="margin-bottom:0"></div>
@@ -3154,7 +3154,7 @@ const STAFF_I18N = {
     'ot.no_records':'尚無申請記錄',
     'ot.hours_label':'加班 {0} 小時','ot.pay_label':'加班費：','ot.review_note':'意見：',
     'ot.auto_holiday':'已自動偵測為國定假日：',
-    'ot.detail_weekday':'平日：前{0}h×1.33 + 後{1}h×1.67',
+    'ot.detail_weekday':'平日：前{0}h×1.34 + 後{1}h×1.67',
     'ot.detail_rest':'休息日（實際{0}h，計費{1}h）',
     'ot.detail_hol':'{0}：{1}h × 2 倍',
     'ot.hours_title':'加班時數：{0} 小時',
@@ -3191,7 +3191,7 @@ const STAFF_I18N = {
     'field.ot_start':'開始時間',
     'field.ot_end':'結束時間',
     'field.ot_day_type':'加班日別',
-    'opt.ot_weekday':'平日（前2h×1.33，後續×1.67）',
+    'opt.ot_weekday':'平日（前2h×1.34，後續×1.67）',
     'opt.ot_rest_day':'休息日（最少4h）',
     'opt.ot_holiday':'國定假日（全程×2倍）',
     'opt.ot_special':'例假日（全程×2倍）',
@@ -3199,7 +3199,7 @@ const STAFF_I18N = {
     'ph.example_ot':'例：客戶急件、備料作業',
     'btn.submit_ot':'送出加班申請',
     'hint.labor_law_ot_title':'勞基法加班費',
-    'hint.labor_law_ot_detail':'：前 2 小時 × 1.33、第 3 小時起 × 1.67',
+    'hint.labor_law_ot_detail':'：前 2 小時 × 1.34、第 3 小時起 × 1.67',
     'form.leave_new':'新增請假申請',
     'field.leave_type_required':'假別 *',
     'field.start_date_required':'開始日期 *',
@@ -3427,7 +3427,7 @@ const STAFF_I18N = {
     'ot.no_records':'No requests yet',
     'ot.hours_label':'OT: {0} hrs','ot.pay_label':'OT Pay: ','ot.review_note':'Note: ',
     'ot.auto_holiday':'Auto-detected as public holiday: ',
-    'ot.detail_weekday':'Weekday: first {0}h×1.33 + next {1}h×1.67',
+    'ot.detail_weekday':'Weekday: first {0}h×1.34 + next {1}h×1.67',
     'ot.detail_rest':'Rest Day (actual {0}h, billed {1}h)',
     'ot.detail_hol':'{0}: {1}h × 2',
     'ot.hours_title':'OT Hours: {0}h',
@@ -3464,7 +3464,7 @@ const STAFF_I18N = {
     'field.ot_start':'Start Time',
     'field.ot_end':'End Time',
     'field.ot_day_type':'OT Type',
-    'opt.ot_weekday':'Weekday (first 2h×1.33, rest×1.67)',
+    'opt.ot_weekday':'Weekday (first 2h×1.34, rest×1.67)',
     'opt.ot_rest_day':'Rest Day (min 4h)',
     'opt.ot_holiday':'Public Holiday (all×2)',
     'opt.ot_special':'Special Holiday (all×2)',
@@ -3472,7 +3472,7 @@ const STAFF_I18N = {
     'ph.example_ot':'e.g. Urgent client order, stock prep',
     'btn.submit_ot':'Submit OT Request',
     'hint.labor_law_ot_title':'Labor Law OT Pay',
-    'hint.labor_law_ot_detail':': first 2h × 1.33, from 3h × 1.67',
+    'hint.labor_law_ot_detail':': first 2h × 1.34, from 3h × 1.67',
     'form.leave_new':'New Leave Request',
     'field.leave_type_required':'Leave Type *',
     'field.start_date_required':'Start Date *',
@@ -3693,7 +3693,7 @@ const STAFF_I18N = {
     'ot.no_records':'申請記録なし',
     'ot.hours_label':'残業 {0} 時間','ot.pay_label':'残業代：','ot.review_note':'コメント：',
     'ot.auto_holiday':'祝日として自動検出：',
-    'ot.detail_weekday':'平日：最初{0}h×1.33 + 残り{1}h×1.67',
+    'ot.detail_weekday':'平日：最初{0}h×1.34 + 残り{1}h×1.67',
     'ot.detail_rest':'休日（実績{0}h、計算{1}h）',
     'ot.detail_hol':'{0}：{1}h × 2',
     'ot.hours_title':'残業時間：{0}h',
@@ -3730,7 +3730,7 @@ const STAFF_I18N = {
     'field.ot_start':'開始時刻',
     'field.ot_end':'終了時刻',
     'field.ot_day_type':'残業日種別',
-    'opt.ot_weekday':'平日（最初2h×1.33、以降×1.67）',
+    'opt.ot_weekday':'平日（最初2h×1.34、以降×1.67）',
     'opt.ot_rest_day':'休日（最低4h）',
     'opt.ot_holiday':'祝日（全程×2）',
     'opt.ot_special':'法定休日（全程×2）',
@@ -3738,7 +3738,7 @@ const STAFF_I18N = {
     'ph.example_ot':'例：緊急案件、資材準備',
     'btn.submit_ot':'残業申請を送信',
     'hint.labor_law_ot_title':'労働基準法残業代',
-    'hint.labor_law_ot_detail':'：最初2h×1.33、3h目以降×1.67',
+    'hint.labor_law_ot_detail':'：最初2h×1.34、3h目以降×1.67',
     'form.leave_new':'新規休暇申請',
     'field.leave_type_required':'休暇種別 *',
     'field.start_date_required':'開始日 *',
@@ -3959,7 +3959,7 @@ const STAFF_I18N = {
     'ot.no_records':'Chưa có yêu cầu',
     'ot.hours_label':'Tăng ca: {0} giờ','ot.pay_label':'Phụ cấp: ','ot.review_note':'Nhận xét: ',
     'ot.auto_holiday':'Tự động nhận diện ngày lễ: ',
-    'ot.detail_weekday':'Ngày thường: {0}h đầu×1.33 + {1}h sau×1.67',
+    'ot.detail_weekday':'Ngày thường: {0}h đầu×1.34 + {1}h sau×1.67',
     'ot.detail_rest':'Ngày nghỉ (thực {0}h, tính {1}h)',
     'ot.detail_hol':'{0}: {1}h × 2',
     'ot.hours_title':'Số giờ tăng ca: {0}h',
@@ -3996,7 +3996,7 @@ const STAFF_I18N = {
     'field.ot_start':'Giờ bắt đầu',
     'field.ot_end':'Giờ kết thúc',
     'field.ot_day_type':'Loại ngày tăng ca',
-    'opt.ot_weekday':'Ngày thường (2h đầu×1.33, sau×1.67)',
+    'opt.ot_weekday':'Ngày thường (2h đầu×1.34, sau×1.67)',
     'opt.ot_rest_day':'Ngày nghỉ (tối thiểu 4h)',
     'opt.ot_holiday':'Ngày lễ (tất cả×2)',
     'opt.ot_special':'Nghỉ bù (tất cả×2)',
@@ -4004,7 +4004,7 @@ const STAFF_I18N = {
     'ph.example_ot':'VD: Đơn hàng gấp, chuẩn bị nguyên liệu',
     'btn.submit_ot':'Gửi yêu cầu tăng ca',
     'hint.labor_law_ot_title':'Phụ cấp tăng ca (Luật LĐ)',
-    'hint.labor_law_ot_detail':': 2h đầu × 1.33, từ 3h × 1.67',
+    'hint.labor_law_ot_detail':': 2h đầu × 1.34, từ 3h × 1.67',
     'form.leave_new':'Yêu cầu nghỉ phép mới',
     'field.leave_type_required':'Loại phép *',
     'field.start_date_required':'Ngày bắt đầu *',
@@ -4225,7 +4225,7 @@ const STAFF_I18N = {
     'ot.no_records':'ยังไม่มีคำขอ',
     'ot.hours_label':'ล่วงเวลา: {0} ชม.','ot.pay_label':'ค่าล่วงเวลา: ','ot.review_note':'หมายเหตุ: ',
     'ot.auto_holiday':'ตรวจพบวันหยุดนักขัตฤกษ์อัตโนมัติ: ',
-    'ot.detail_weekday':'วันทำงาน: {0}ชม.แรก×1.33 + {1}ชม.ถัดไป×1.67',
+    'ot.detail_weekday':'วันทำงาน: {0}ชม.แรก×1.34 + {1}ชม.ถัดไป×1.67',
     'ot.detail_rest':'วันหยุด (จริง {0}ชม., คิด {1}ชม.)',
     'ot.detail_hol':'{0}: {1}ชม. × 2',
     'ot.hours_title':'ชั่วโมงล่วงเวลา: {0}ชม.',
@@ -4262,7 +4262,7 @@ const STAFF_I18N = {
     'field.ot_start':'เวลาเริ่ม',
     'field.ot_end':'เวลาสิ้นสุด',
     'field.ot_day_type':'ประเภทวันล่วงเวลา',
-    'opt.ot_weekday':'วันทำงาน (2ชม.แรก×1.33, ต่อไป×1.67)',
+    'opt.ot_weekday':'วันทำงาน (2ชม.แรก×1.34, ต่อไป×1.67)',
     'opt.ot_rest_day':'วันหยุด (อย่างน้อย 4ชม.)',
     'opt.ot_holiday':'วันหยุดนักขัตฤกษ์ (ทั้งหมด×2)',
     'opt.ot_special':'วันหยุดพิเศษ (ทั้งหมด×2)',
@@ -4270,7 +4270,7 @@ const STAFF_I18N = {
     'ph.example_ot':'เช่น งานด่วนลูกค้า, เตรียมสต็อก',
     'btn.submit_ot':'ส่งคำขอล่วงเวลา',
     'hint.labor_law_ot_title':'ค่าล่วงเวลาตามกฎหมายแรงงาน',
-    'hint.labor_law_ot_detail':': 2ชม.แรก × 1.33, ตั้งแต่ 3ชม. × 1.67',
+    'hint.labor_law_ot_detail':': 2ชม.แรก × 1.34, ตั้งแต่ 3ชม. × 1.67',
     'form.leave_new':'คำขอลาใหม่',
     'field.leave_type_required':'ประเภทการลา *',
     'field.start_date_required':'วันเริ่ม *',
@@ -4491,7 +4491,7 @@ const STAFF_I18N = {
     'ot.no_records':'暂无申请记录',
     'ot.hours_label':'加班 {0} 小时','ot.pay_label':'加班费：','ot.review_note':'意见：',
     'ot.auto_holiday':'已自动检测为法定节假日：',
-    'ot.detail_weekday':'平日：前{0}h×1.33 + 后{1}h×1.67',
+    'ot.detail_weekday':'平日：前{0}h×1.34 + 后{1}h×1.67',
     'ot.detail_rest':'休息日（实际{0}h，计费{1}h）',
     'ot.detail_hol':'{0}：{1}h × 2 倍',
     'ot.hours_title':'加班时数：{0} 小时',
@@ -4527,7 +4527,7 @@ const STAFF_I18N = {
     'field.ot_start':'开始时间',
     'field.ot_end':'结束时间',
     'field.ot_day_type':'加班日别',
-    'opt.ot_weekday':'平日（前2h×1.33，后续×1.67）',
+    'opt.ot_weekday':'平日（前2h×1.34，后续×1.67）',
     'opt.ot_rest_day':'休息日（最少4h）',
     'opt.ot_holiday':'法定节假日（全程×2倍）',
     'opt.ot_special':'例假日（全程×2倍）',
@@ -4535,7 +4535,7 @@ const STAFF_I18N = {
     'ph.example_ot':'例：客户急件、备料作业',
     'btn.submit_ot':'提交加班申请',
     'hint.labor_law_ot_title':'劳动法加班费',
-    'hint.labor_law_ot_detail':'：前 2 小时 × 1.33、第 3 小时起 × 1.67',
+    'hint.labor_law_ot_detail':'：前 2 小时 × 1.34、第 3 小时起 × 1.67',
     'form.leave_new':'新增请假申请',
     'field.leave_type_required':'假别 *',
     'field.start_date_required':'开始日期 *',
@@ -4756,7 +4756,7 @@ const STAFF_I18N = {
     'ot.no_records':'Belum ada permohonan',
     'ot.hours_label':'Lembur: {0} jam','ot.pay_label':'Upah Lembur: ','ot.review_note':'Catatan: ',
     'ot.auto_holiday':'Terdeteksi otomatis sebagai hari raya: ',
-    'ot.detail_weekday':'Hari kerja: {0}j pertama×1.33 + {1}j berikutnya×1.67',
+    'ot.detail_weekday':'Hari kerja: {0}j pertama×1.34 + {1}j berikutnya×1.67',
     'ot.detail_rest':'Hari libur (aktual {0}j, dihitung {1}j)',
     'ot.detail_hol':'{0}: {1}j × 2',
     'ot.hours_title':'Jam Lembur: {0}j',
@@ -4793,7 +4793,7 @@ const STAFF_I18N = {
     'field.ot_start':'Waktu Mulai',
     'field.ot_end':'Waktu Selesai',
     'field.ot_day_type':'Jenis Hari Lembur',
-    'opt.ot_weekday':'Hari Kerja (2j pertama×1.33, selebihnya×1.67)',
+    'opt.ot_weekday':'Hari Kerja (2j pertama×1.34, selebihnya×1.67)',
     'opt.ot_rest_day':'Hari Libur (min 4j)',
     'opt.ot_holiday':'Hari Raya (semua×2)',
     'opt.ot_special':'Hari Libur Khusus (semua×2)',
@@ -4801,7 +4801,7 @@ const STAFF_I18N = {
     'ph.example_ot':'cth: Pesanan mendesak, persiapan stok',
     'btn.submit_ot':'Kirim Permohonan Lembur',
     'hint.labor_law_ot_title':'Upah Lembur (UU Ketenagakerjaan)',
-    'hint.labor_law_ot_detail':': 2j pertama × 1.33, mulai 3j × 1.67',
+    'hint.labor_law_ot_detail':': 2j pertama × 1.34, mulai 3j × 1.67',
     'form.leave_new':'Permohonan Cuti Baru',
     'field.leave_type_required':'Jenis Cuti *',
     'field.start_date_required':'Tanggal Mulai *',

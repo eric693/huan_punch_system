@@ -145,7 +145,7 @@ def init_db():
                     base_salary     NUMERIC(12,2) DEFAULT 0,
                     insured_salary  NUMERIC(12,2) DEFAULT 0,
                     daily_hours     NUMERIC(4,1) DEFAULT 8,
-                    ot_rate1        NUMERIC(4,2) DEFAULT 1.33,
+                    ot_rate1        NUMERIC(4,2) DEFAULT 1.34,
                     ot_rate2        NUMERIC(4,2) DEFAULT 1.67,
                     salary_type     TEXT DEFAULT 'monthly',
                     hourly_rate     NUMERIC(12,2) DEFAULT 0,
@@ -337,7 +337,7 @@ def init_db():
         "ALTER TABLE punch_staff ADD COLUMN IF NOT EXISTS insured_salary NUMERIC(12,2) DEFAULT 0",
         "ALTER TABLE punch_staff ADD COLUMN IF NOT EXISTS salary_notes TEXT DEFAULT ''",
         "ALTER TABLE punch_staff ADD COLUMN IF NOT EXISTS daily_hours NUMERIC(4,1) DEFAULT 8",
-        "ALTER TABLE punch_staff ADD COLUMN IF NOT EXISTS ot_rate1 NUMERIC(4,2) DEFAULT 1.33",
+        "ALTER TABLE punch_staff ADD COLUMN IF NOT EXISTS ot_rate1 NUMERIC(4,2) DEFAULT 1.34",
         "ALTER TABLE punch_staff ADD COLUMN IF NOT EXISTS ot_rate2 NUMERIC(4,2) DEFAULT 1.67",
         "ALTER TABLE punch_staff ADD COLUMN IF NOT EXISTS salary_type TEXT DEFAULT 'monthly'",
         "ALTER TABLE punch_staff ADD COLUMN IF NOT EXISTS hourly_rate NUMERIC(12,2) DEFAULT 0",
@@ -2902,7 +2902,7 @@ def _calc_today_pay(staff):
 
     salary_type  = staff.get('salary_type') or 'monthly'
     daily_hours  = float(staff.get('daily_hours') or 8)
-    ot_rate1     = float(staff.get('ot_rate1') or 1.33)
+    ot_rate1     = float(staff.get('ot_rate1') or 1.34)
     ot_rate2     = float(staff.get('ot_rate2') or 1.67)
     meal         = float(staff.get('meal_allowance') or 0)   if has_in else 0.0
     driver       = float(staff.get('driver_allowance') or 0) if has_in else 0.0
@@ -4231,7 +4231,7 @@ def _calc_ot_pay(staff_row, ot_hours, day_type='weekday'):
     base_salary = float(staff_row.get('base_salary')  or 0)
     hourly_rate = float(staff_row.get('hourly_rate')  or 0)
     daily_hours = float(staff_row.get('daily_hours')  or 8)
-    ot_rate1    = float(staff_row.get('ot_rate1')     or 1.33)
+    ot_rate1    = float(staff_row.get('ot_rate1')     or 1.34)
     ot_rate2    = float(staff_row.get('ot_rate2')     or 1.67)
 
     if salary_type == 'hourly':
@@ -4425,7 +4425,7 @@ def api_ot_calc_preview():
         'day_type':    day_type,
         'h1':          h1,
         'h2':          h2,
-        'ot_rate1':    float(staff.get('ot_rate1') or 1.33),
+        'ot_rate1':    float(staff.get('ot_rate1') or 1.34),
         'ot_rate2':    float(staff.get('ot_rate2') or 1.67),
         'ot_pay':      ot_pay,
     })
@@ -5921,7 +5921,7 @@ def _auto_generate_salary(conn, staff, month, work_days=None, batch_ctx=None):
                 if overtime_h > 0:
                     h1 = min(overtime_h, 2.0)
                     h2 = max(0.0, overtime_h - 2.0)
-                    rate1 = float(staff.get('ot_rate1') or 1.33)
+                    rate1 = float(staff.get('ot_rate1') or 1.34)
                     rate2 = float(staff.get('ot_rate2') or 1.67)
                     # 只計算超時加給（倍率-1），基本時薪已算入 hourly_base_pay
                     ot_pay += round(hourly_rate * (h1 * (rate1 - 1.0) + h2 * (rate2 - 1.0)), 2)
@@ -6978,7 +6978,7 @@ def api_salary_staff_update(sid):
         """, (_s('employee_code'), _s('department'), _s('position_title'),
               _s('hire_date'),
               _f('base_salary'), _f('insured_salary'), _f('daily_hours') or 8,
-              _f('ot_rate1') or 1.33, _f('ot_rate2') or 1.67,
+              _f('ot_rate1') or 1.34, _f('ot_rate2') or 1.67,
               b.get('salary_type','monthly'),
               _f('hourly_rate'), b.get('vacation_quota') or None,
               b.get('salary_notes',''), salary_item_ids_json, overrides_json,
