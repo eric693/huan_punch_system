@@ -1526,14 +1526,24 @@ def api_punch_record_manual():
             if rec['punch_type'] == punch_type:
                 return jsonify({'error': f'該員工當日已有「{LABEL.get(punch_type,punch_type)}」記錄（id={rec["id"]}），請先刪除再補建'}), 409
 
+        from datetime import timezone as _tz_manual
+        pa_new = _dt.fromisoformat(str(punched_at).replace('Z', '+00:00'))
+        if pa_new.tzinfo is None:
+            pa_new = pa_new.replace(tzinfo=_tz_manual.utc)
         if punch_type == 'out':
             in_rec = next((r for r in day_records if r['punch_type'] == 'in'), None)
-            if in_rec and punched_at <= in_rec['punched_at'].isoformat():
-                return jsonify({'error': '下班時間不得早於或等於上班時間'}), 400
+            if in_rec:
+                pa_in = in_rec['punched_at']
+                if pa_in.tzinfo is None: pa_in = pa_in.replace(tzinfo=_tz_manual.utc)
+                if pa_new <= pa_in:
+                    return jsonify({'error': '下班時間不得早於或等於上班時間'}), 400
         elif punch_type == 'in':
             out_rec = next((r for r in day_records if r['punch_type'] == 'out'), None)
-            if out_rec and punched_at >= out_rec['punched_at'].isoformat():
-                return jsonify({'error': '上班時間不得晚於或等於已存在的下班時間'}), 400
+            if out_rec:
+                pa_out = out_rec['punched_at']
+                if pa_out.tzinfo is None: pa_out = pa_out.replace(tzinfo=_tz_manual.utc)
+                if pa_new >= pa_out:
+                    return jsonify({'error': '上班時間不得晚於或等於已存在的下班時間'}), 400
 
         row = conn.execute("""
             INSERT INTO punch_records
@@ -2712,6 +2722,10 @@ def _do_line_punch(staff, user_id, lat, lng, forced_type, PUNCH_LABEL):
                     label=label, loc=min_loc['location_name'],
                     dist=min_dist, radius=min_loc['radius_m']))
                 return
+        elif gps_required:
+            _send_line_punch(user_id, _lmsg('punch_gps_fail', _lang(),
+                label=label, loc='', dist=0, radius=0))
+            return
 
     # Duplicate guard
     with get_db() as conn:
@@ -4938,7 +4952,8 @@ def api_leave_my_annual_report():
     with get_db() as conn:
         # 假別餘額
         balances = conn.execute("""
-            SELECT lb.allocated, lb.used, lb.adjusted, lb.carry_over,
+            SELECT lb.total_days AS allocated, lb.used_days AS used,
+                   0 AS adjusted, 0 AS carry_over,
                    lt.name AS type_name, lt.code, lt.color
             FROM leave_balances lb
             JOIN leave_types lt ON lt.id=lb.leave_type_id
@@ -5616,7 +5631,7 @@ def _calc_punch_hours(conn, staff_id, month):
             'net_hours':   net_hrs,
         })
 
-    return round(total_hours, 2), len(day_map), details
+    return round(total_hours, 2), len(details), details
 
 
 def _auto_generate_salary(conn, staff, month, work_days=None, batch_ctx=None):
@@ -7538,7 +7553,7 @@ def api_punch_req_review_v2(rid):
     dt_str = row['requested_at'].isoformat()[:16].replace('T',' ')
     extra  = f"{LABEL.get(row['punch_type'],'')} {dt_str}"
     if review_note: extra += f"\n審核意見：{review_note}"
-    _notify_review_result(row['staff_id'], '補打卡申請', action, extra)
+    _notify_review_result(row['staff_id'], '補打卡申請', new_status, extra)
     return jsonify(punch_req_row(row))
 
 
@@ -7645,7 +7660,8 @@ def api_dashboard():
 
         # ── 本月出勤統計（每天出勤人數，用於折線圖）─────────────
         import calendar as _cal
-        days_in_month = _cal.monthrange(today.year, today.month)[1]
+        _my, _mm = int(month[:4]), int(month[5:])
+        days_in_month = _cal.monthrange(_my, _mm)[1]
         daily_rows = conn.execute("""
             SELECT (punched_at AT TIME ZONE 'Asia/Taipei')::date as d,
                    COUNT(DISTINCT staff_id) as cnt
@@ -7659,7 +7675,7 @@ def api_dashboard():
         daily_attendance = []
         for day in range(1, days_in_month + 1):
             ds = f"{month}-{day:02d}"
-            dt = _dd(today.year, today.month, day)
+            dt = _dd(_my, _mm, day)
             daily_attendance.append({
                 'date':    ds,
                 'day':     day,
@@ -8848,8 +8864,8 @@ def api_payslip_send_history():
     month    = request.args.get('month', '')
     staff_id = request.args.get('staff_id')
     conds, params = ["TRUE"], []
-    if month:    conds.append("month=%s");    params.append(month)
-    if staff_id: conds.append("staff_id=%s"); params.append(int(staff_id))
+    if month:    conds.append("ps.month=%s");    params.append(month)
+    if staff_id: conds.append("ps.staff_id=%s"); params.append(int(staff_id))
     with get_db() as conn:
         rows = conn.execute(f"""
             SELECT ps.id as rid, ps.staff_id, ps.month, ps.channel, ps.sent_by,
@@ -8906,6 +8922,7 @@ def api_attendance_anomalies():
             JOIN punch_staff ps ON ps.id = pr.staff_id
             WHERE (pr.punched_at AT TIME ZONE 'Asia/Taipei')::date BETWEEN %s AND %s
               AND ps.active = TRUE
+              AND pr.deleted_at IS NULL
             GROUP BY ps.id, ps.name, ps.role, ps.department,
                      (pr.punched_at AT TIME ZONE 'Asia/Taipei')::date
             ORDER BY work_date DESC, ps.name
@@ -10294,7 +10311,7 @@ def api_recurring_generate():
             WHERE active=TRUE
               AND start_date <= %s
               AND (end_date IS NULL OR end_date >= %s)
-        """, (f"{month}-28", f"{month}-01")).fetchall()
+        """, (f"{month}-{days_in_month:02d}", f"{month}-01")).fetchall()
 
         for r in rows:
             # Check already generated this month
@@ -11017,9 +11034,9 @@ def api_export_401(year, period):
     acc_sales_amt = sum(float(r['subtotal'] or 0) for r in acc_inv)
     acc_sales_tax = sum(float(r['tax_amount'] or 0) for r in acc_inv)
 
-    # Combine: financial records + electronic invoices (deduplicate if needed)
-    combined_sales_amt = max(total_sales_amt, acc_sales_amt)
-    combined_sales_tax = max(total_sales_tax, acc_sales_tax)
+    # Combine: prefer acc_invoices (electronic) when available, else fall back to finance_records
+    combined_sales_amt = acc_sales_amt if acc_sales_amt > 0 else total_sales_amt
+    combined_sales_tax = acc_sales_tax if acc_sales_tax > 0 else total_sales_tax
     tax_payable = round(combined_sales_tax - total_pur_tax, 2)
 
     wb = openpyxl.Workbook()
@@ -12005,7 +12022,7 @@ def _line_query_performance(staff, user_id):
         return
     grade_label = _grade_labels()
     pct = float(row['total_score']) / float(row['max_score']) * 100 if row['max_score'] else 0
-    adj = _lmsg('perf_adj', lang, delta=float(row['salary_delta'])) if row['salary_adjusted'] else ''
+    adj = _lmsg('perf_adj', lang, delta=float(row['salary_delta'] or 0)) if row['salary_adjusted'] else ''
     comments = _lmsg('perf_comments', lang, text=row['comments'][:60]) if row['comments'] else ''
     reviewed = str(row['reviewed_at'])[:10] if row['reviewed_at'] else ''
     _send_line_punch(user_id, _lmsg('perf_body', lang,
@@ -12469,7 +12486,7 @@ def mobile_attendance():
         if clock_in and clock_out:
             ci = _dt.strptime(clock_in,  '%H:%M')
             co = _dt.strptime(clock_out, '%H:%M')
-            diff = (co - ci).seconds / 3600
+            diff = max(0, (co - ci).total_seconds()) / 3600
             hours = round(diff, 2)
         result.append({'date': day, 'clock_in': clock_in, 'clock_out': clock_out,
                        'hours': hours, 'records': records})
@@ -13862,7 +13879,7 @@ def api_export_performance_excel():
             r['staff_name'], r['department'] or '', r['staff_role'] or '',
             r['period_label'] or '', r['tpl_name'] or '',
             float(r['total_score'] or 0), r['grade'] or '',
-            r['salary_adjustment'] or '',
+            (f"+{float(r['salary_delta']):.0f}" if r.get('salary_adjusted') and r.get('salary_delta') else ''),
             r['reviewer'] or '',
             str(r['reviewed_at'])[:10] if r.get('reviewed_at') else '',
             r['comments'] or '',
@@ -15008,7 +15025,7 @@ def api_insurance_change_log_post():
         if not staff:
             return jsonify({'error': '找不到員工'}), 404
         old_salary = float(staff['insured_salary'] or 0)
-        created_by = session.get('admin_user', '')
+        created_by = session.get('admin_display_name', '')
         conn.execute(
             "UPDATE punch_staff SET insured_salary = %s WHERE id = %s",
             (new_salary, int(staff_id))
@@ -16173,6 +16190,8 @@ def api_ecom_webhook_receive(webhook_token):
             request.headers.get('X-Webhook-Signature') or
             request.headers.get('X-Hub-Signature-256') or ''
         )
+        if not sig_header:
+            return jsonify({'error': 'missing signature'}), 401
         if sig_header.startswith('sha256='):
             expected = 'sha256=' + _hmac.new(
                 api_secret.encode(), request.data, _hashlib.sha256
@@ -16951,10 +16970,19 @@ def api_inv_po_receive(oid):
                     (uc, pid)
                 )
 
-        # 判斷 PO 是否全數入庫
+        # 判斷 PO 是否全數入庫（累計歷次入庫數量）
         po_items = po['items'] if isinstance(po['items'], list) else []
         total_ordered = sum(float(it.get('qty', 0)) for it in po_items)
-        total_received_new = sum(float(it.get('qty_received', 0)) for it in items)
+        prev_receipts = conn.execute(
+            "SELECT items FROM inv_purchase_receipts WHERE po_id=%s AND id!=%s",
+            (oid, grn['id'])
+        ).fetchall()
+        prev_qty = sum(
+            float(pit.get('qty_received', 0))
+            for pr in prev_receipts
+            for pit in (pr['items'] if isinstance(pr['items'], list) else __import__('json').loads(pr['items'] or '[]'))
+        )
+        total_received_new = prev_qty + sum(float(it.get('qty_received', 0)) for it in items)
         new_status = 'received' if total_received_new >= total_ordered > 0 else 'partial'
         conn.execute(
             "UPDATE inv_purchase_orders SET status=%s, updated_at=NOW() WHERE id=%s",
@@ -17529,12 +17557,12 @@ def api_acc_voucher_create():
     admin = session.get('admin_display', session.get('admin', ''))
     lines = d.get('lines', [])
 
+    if not lines:
+        return jsonify({'error': '傳票明細不可為空'}), 400
     total_debit  = sum(float(l.get('debit', 0))  for l in lines)
     total_credit = sum(float(l.get('credit', 0)) for l in lines)
     if abs(total_debit - total_credit) > 0.005:
         return jsonify({'error': f'借貸不平衡（借方 {total_debit:.2f}，貸方 {total_credit:.2f}）'}), 400
-    if not lines:
-        return jsonify({'error': '傳票明細不可為空'}), 400
 
     vdate = d.get('voucher_date') or str(_dt.date.today())
     fy    = int(vdate[:4])
@@ -18552,9 +18580,9 @@ def api_inv_supplier_delete(sid):
 @app.route('/api/export/invoices-excel', methods=['GET'])
 @require_module('accounting')
 def api_export_invoices_excel():
+    import openpyxl
     month = request.args.get('month', '').strip()
     inv_type = request.args.get('type', '').strip()
-    from export_helpers import build_excel_response
     sql = "SELECT * FROM acc_invoices WHERE status != 'void'"
     params = []
     if month:
@@ -18565,6 +18593,7 @@ def api_export_invoices_excel():
     with get_db() as conn:
         rows = conn.execute(sql, params).fetchall()
     headers = ['發票號碼','類型','日期','賣方統編','賣方','買方統編','買方','未稅金額','稅率','稅額','含稅總計','狀態','備註']
+    col_w   = [14,8,12,12,20,12,20,12,8,10,12,8,20]
     type_map = {'sales':'銷售','purchase':'進項','credit_note':'折讓'}
     data = [[
         r['invoice_no'], type_map.get(r['invoice_type'], r['invoice_type']),
@@ -18574,7 +18603,10 @@ def api_export_invoices_excel():
         float(r['tax_amount'] or 0), float(r['total'] or 0),
         r['status'], r['notes'],
     ] for r in rows]
-    return build_excel_response(headers, data, f'invoices_{month or "all"}.xlsx')
+    wb = openpyxl.Workbook(); ws = wb.active; ws.title = '發票列表'
+    _xl_write_header(ws, headers, col_w)
+    _xl_write_rows(ws, data)
+    return _xl_response(wb, f'invoices_{month or "all"}.xlsx')
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -19306,7 +19338,7 @@ def api_inv_suggest_po():
         po_no = _next_inv_no('PO', 'inv_purchase_orders', 'po_no')
         po = conn.execute("""
             INSERT INTO inv_purchase_orders
-              (po_no, supplier_id, warehouse_id, items, subtotal, total,
+              (po_no, vendor_id, warehouse_id, items, subtotal, total,
                status, notes, created_by)
             VALUES (%s,%s,%s,%s::jsonb,%s,%s,'draft','自動建議採購單',%s)
             RETURNING id, po_no
@@ -19676,7 +19708,7 @@ def api_export_po_pdf(oid):
         row = conn.execute("""
             SELECT p.*, s.company_name AS supplier_name, w.name AS warehouse_name
             FROM inv_purchase_orders p
-            LEFT JOIN crm_customers s ON s.id = p.supplier_id
+            LEFT JOIN crm_customers s ON s.id = p.vendor_id
             LEFT JOIN inv_warehouses w ON w.id = p.warehouse_id
             WHERE p.id = %s
         """, (oid,)).fetchone()
@@ -20420,7 +20452,7 @@ def api_crm_contracts_list():
             except ValueError:
                 pass
         if customer_id:
-            sql += " AND c.customer_id=%s"; params.append(customer_id)
+            sql += " AND c.customer_id=%s"; params.append(int(customer_id))
         if status:
             sql += " AND c.status=%s"; params.append(status)
         if expiring:
@@ -20591,7 +20623,7 @@ def api_crm_customer_360(cid):
             FROM crm_contracts WHERE customer_id=%s ORDER BY created_at DESC LIMIT 10
         """, (cid,)).fetchall()
         opportunities = conn.execute("""
-            SELECT id, title, stage, value, expected_close_date
+            SELECT id, title, stage, value, expected_close
             FROM crm_opportunities WHERE customer_id=%s ORDER BY created_at DESC LIMIT 10
         """, (cid,)).fetchall()
         lifetime_value = conn.execute("""
@@ -20625,7 +20657,7 @@ def api_crm_customer_360(cid):
         'orders':        [row2d(r, ts_fields=('created_at',)) for r in orders],
         'quotes':        [row2d(r, ts_fields=('created_at',)) for r in quotes],
         'contracts':     [row2d(r, date_fields=('start_date','end_date')) for r in contracts],
-        'opportunities': [row2d(r, date_fields=('expected_close_date',)) for r in opportunities],
+        'opportunities': [row2d(r, date_fields=('expected_close',)) for r in opportunities],
     })
 
 
@@ -21131,7 +21163,7 @@ def api_inv_count_session_complete(sid):
                       float(it['counted_qty']), variance))
                 conn.execute("""
                     INSERT INTO inv_transactions
-                      (product_id, warehouse_id, transaction_type, qty, notes, created_by)
+                      (product_id, warehouse_id, txn_type, qty, notes, created_by)
                     VALUES (%s,%s,'adjustment',%s,'盤點調整 session#%s',%s)
                 """, (it['product_id'], wid, variance, sid, session.get('username','')))
                 adjusted += 1
@@ -21229,7 +21261,7 @@ def api_inv_returns_process(rid):
                 """, (pid, wid, qty, qty))
                 conn.execute("""
                     INSERT INTO inv_transactions
-                      (product_id, warehouse_id, transaction_type, qty, notes, created_by)
+                      (product_id, warehouse_id, txn_type, qty, notes, created_by)
                     VALUES (%s,%s,'return',%s,'退貨入庫 RMA#%s',%s)
                 """, (pid, wid, qty, ret['return_no'], session.get('username','')))
         conn.execute("""
