@@ -2623,13 +2623,13 @@ def _handle_line_punch_event(event, cfg):
         '休息': 'break_out', '休息開始': 'break_out', '開車去': 'break_out',
         '回來': 'break_in', '休息結束': 'break_in', '開車回': 'break_in',
     }
-    # Merge custom rich-menu button texts for punch positions (0=in, 1=out) only
+    # Merge custom rich-menu button texts for punch positions (0=in,1=out,2=break_out,3=break_in)
     try:
         _rm_cfg = get_line_punch_config()
         _rm_texts = _rm_cfg.get('richmenu_area_texts') if _rm_cfg else None
         if _rm_texts:
             _rm_list = _json.loads(_rm_texts) if isinstance(_rm_texts, str) else _rm_texts
-            for _i, _pt in enumerate(['in', 'out']):
+            for _i, _pt in enumerate(['in', 'out', 'break_out', 'break_in']):
                 _t = _rm_list[_i].strip() if _i < len(_rm_list) and _rm_list[_i] else ''
                 if _t:
                     PUNCH_CMDS[_t] = _pt
@@ -3089,17 +3089,30 @@ def _gdrive_download(url):
 
 
 def _make_richmenu_png():
-    """Generate a simple 2500×1686 PNG with 4 colored quadrants (no external deps)."""
+    """Generate a 2500×1686 PNG with 2×3 grid (6 cells, no external deps)."""
     import struct, zlib
     W, H = 2500, 1686
-    colors = [(0x2e,0x9e,0x6b), (0xd6,0x42,0x42), (0xe0,0x7b,0x2a), (0x4a,0x7b,0xda)]
+    # Row heights: 562 each (562*3=1686); col widths: 1250 each
+    # Order: [上班, 下班, 開車去, 開車回, 請假, 加班]
+    colors = [
+        (0x2e,0x9e,0x6b),  # 上班 green
+        (0xd6,0x42,0x42),  # 下班 red
+        (0xe0,0x7b,0x2a),  # 開車去 orange
+        (0x4a,0x7b,0xda),  # 開車回 blue
+        (0x7c,0x4d,0xb0),  # 請假 purple
+        (0x1a,0x8f,0x9e),  # 加班 teal
+    ]
+    ROW_H = 562
+    COL_W = 1250
     rows = []
     for y in range(H):
         row = bytearray()
         for x in range(W):
-            p = (0 if y < 843 else 1) * 2 + (0 if x < 1250 else 1)
+            col = 0 if x < COL_W else 1
+            row_idx = 0 if y < ROW_H else (1 if y < ROW_H * 2 else 2)
+            p = row_idx * 2 + col
             r, g, b = colors[p]
-            if x in (1249, 1250) or y in (842, 843):
+            if x in (COL_W - 1, COL_W) or y in (ROW_H - 1, ROW_H, ROW_H * 2 - 1, ROW_H * 2):
                 r, g, b = 0x0f, 0x1c, 0x3a
             row += bytes([r, g, b])
         rows.append(bytes([0]) + bytes(row))
@@ -3125,10 +3138,10 @@ def api_richmenu_create():
     body_json = request.get_json(silent=True) or {}
     gdrive_url = (body_json.get('gdrive_url') or '').strip()
     raw_texts  = body_json.get('area_texts') or []
-    # Expect [top-left, top-right, bottom-left, bottom-right]
-    defaults   = ['上班', '下班', '請假', '加班']
+    # Expect [上班, 下班, 開車去, 開車回, 請假, 加班] (2×3 grid, row-major)
+    defaults   = ['上班', '下班', '開車去', '開車回', '請假', '加班']
     area_texts = [(raw_texts[i].strip() if i < len(raw_texts) and raw_texts[i].strip() else defaults[i])
-                  for i in range(4)]
+                  for i in range(6)]
 
     # Save custom area texts to config so webhook can use them
     try:
@@ -3140,11 +3153,14 @@ def api_richmenu_create():
     except Exception:
         pass
 
+    # 2×3 grid: 2 cols × 3 rows, each cell 1250×562
     bounds = [
-        {"x": 0,    "y": 0,   "width": 1250, "height": 843},
-        {"x": 1250, "y": 0,   "width": 1250, "height": 843},
-        {"x": 0,    "y": 843, "width": 1250, "height": 843},
-        {"x": 1250, "y": 843, "width": 1250, "height": 843},
+        {"x": 0,    "y": 0,    "width": 1250, "height": 562},  # 上班
+        {"x": 1250, "y": 0,    "width": 1250, "height": 562},  # 下班
+        {"x": 0,    "y": 562,  "width": 1250, "height": 562},  # 開車去
+        {"x": 1250, "y": 562,  "width": 1250, "height": 562},  # 開車回
+        {"x": 0,    "y": 1124, "width": 1250, "height": 562},  # 請假
+        {"x": 1250, "y": 1124, "width": 1250, "height": 562},  # 加班
     ]
     body = {
         "size": {"width": 2500, "height": 1686},
@@ -3153,7 +3169,7 @@ def api_richmenu_create():
         "chatBarText": "Punch",
         "areas": [
             {"bounds": bounds[i], "action": {"type": "message", "text": area_texts[i]}}
-            for i in range(4)
+            for i in range(6)
         ]
     }
 
@@ -5804,6 +5820,7 @@ def _auto_generate_salary(conn, staff, month, work_days=None, batch_ctx=None):
     insured_salary = float(staff.get('insured_salary') or base_salary)
     daily_hours    = float(staff.get('daily_hours')    or 8)
     service_years  = _calc_service_years(staff.get('hire_date'))
+    meal_allowance = float(staff.get('meal_allowance') or 0)
 
     # ── 已核准加班費（必須先取得，時薪制計算本薪時需要 total_ot_hours）──
     if batch_ctx is not None:
@@ -6195,6 +6212,25 @@ def _auto_generate_salary(conn, staff, month, work_days=None, batch_ctx=None):
             'calc_note': f'{_drvr_cnt}筆 × $125',
         })
         allowance_total += _drvr_total
+
+    # ── 餐費補貼（每日固定補貼 × 實際出勤天數）────────────────────────
+    if meal_allowance > 0:
+        if salary_type in ('hourly', 'daily'):
+            _meal_days = punch_work_days
+        else:
+            # 月薪制：應出勤天數 - 請假天數 - 缺勤天數
+            _meal_days = max(0, total_work_days - leave_days - absent_days)
+        if _meal_days > 0:
+            _meal_total = round(meal_allowance * _meal_days, 2)
+            items.append({
+                'id': 'meal_allowance',
+                'name': '餐費補貼',
+                'type': 'allowance',
+                'amount': _meal_total,
+                'formula': '',
+                'calc_note': f'{int(_meal_days)}天 × ${int(meal_allowance)}',
+            })
+            allowance_total += _meal_total
 
     net_pay = round(allowance_total - deduction_total, 2)
 
