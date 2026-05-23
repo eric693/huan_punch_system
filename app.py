@@ -2062,6 +2062,7 @@ def _line_leave_start(staff, user_id):
     if not types:
         _send_line_punch(user_id, _lmsg('leave_no_types_admin', _lang()))
         return
+    _send_line_punch(user_id, _lmsg('leave_intro', _lang()))
     _line_conv_state[user_id] = {'flow': 'leave', 'step': 1, 'data': {}, 'all_types': [t['name'] for t in types]}
     # Quick reply max 13 items; show first 12 + cancel; if more, paginate via postback
     _line_leave_send_types(user_id, [t['name'] for t in types], page=0)
@@ -2334,6 +2335,7 @@ def _line_ot_start(staff, user_id):
     lang = _lang()
     today = _d.today().isoformat()
     tmrw  = (_d.today() + _td(days=1)).isoformat()
+    _send_line_punch(user_id, _lmsg('ot_intro', lang))
     _line_conv_state[user_id] = {'flow': 'ot', 'step': 1, 'data': {}}
     msg = _flex_ask(_lmsg('ot_title', lang), '#E67E22',
                     _lmsg('ot_select_date', lang),

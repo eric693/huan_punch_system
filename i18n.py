@@ -1994,6 +1994,68 @@ _LINE_TMPL = {
         'id': '[Susulan]',
     },
     # ── Leave flow ───────────────────────────────────────────────────────
+    'leave_intro': {
+        'zh-TW': (
+            '請假申請流程：\n'
+            '1. 選擇假別（如：特休、事假、病假）\n'
+            '2. 輸入開始日期（格式：YYYY-MM-DD）\n'
+            '3. 輸入結束日期（單日選「同一天」）\n'
+            '4. 輸入請假原因（可跳過）\n\n'
+            '範例：特休 2026-06-01 一天\n'
+            '範例：病假 2026-06-01 至 2026-06-03 就醫\n\n'
+            '請點選下方假別開始申請：'
+        ),
+        'en': (
+            'Leave application flow:\n'
+            '1. Select leave type (e.g. Annual, Personal, Sick)\n'
+            '2. Enter start date (YYYY-MM-DD)\n'
+            '3. Enter end date (tap "Same day" for single day)\n'
+            '4. Enter reason (optional)\n\n'
+            'Example: Annual 2026-06-01 (1 day)\n'
+            'Example: Sick 2026-06-01 to 2026-06-03 Doctor visit\n\n'
+            'Please tap a leave type below to start:'
+        ),
+        'ja': (
+            '休暇申請の流れ：\n'
+            '1. 休暇種別を選択（例：有給、私事、病気）\n'
+            '2. 開始日を入力（YYYY-MM-DD形式）\n'
+            '3. 終了日を入力（1日の場合は「同じ日」を選択）\n'
+            '4. 理由を入力（省略可）\n\n'
+            '例：有給 2026-06-01（1日）\n'
+            '例：病気 2026-06-01 〜 2026-06-03 通院\n\n'
+            '下のボタンから休暇種別を選んでください：'
+        ),
+        'vi': (
+            'Quy trình xin nghỉ phép:\n'
+            '1. Chọn loại nghỉ (VD: Phép năm, Cá nhân, Bệnh)\n'
+            '2. Nhập ngày bắt đầu (YYYY-MM-DD)\n'
+            '3. Nhập ngày kết thúc (nghỉ 1 ngày chọn "Cùng ngày")\n'
+            '4. Nhập lý do (có thể bỏ qua)\n\n'
+            'Ví dụ: Phép năm 2026-06-01 (1 ngày)\n'
+            'Ví dụ: Nghỉ bệnh 2026-06-01 đến 2026-06-03 Đi khám bệnh\n\n'
+            'Nhấn vào loại nghỉ bên dưới để bắt đầu:'
+        ),
+        'th': (
+            'ขั้นตอนการขอลา:\n'
+            '1. เลือกประเภทการลา (เช่น ลาพักร้อน, ลากิจ, ลาป่วย)\n'
+            '2. ใส่วันที่เริ่มต้น (รูปแบบ YYYY-MM-DD)\n'
+            '3. ใส่วันที่สิ้นสุด (วันเดียวแตะ "วันเดียวกัน")\n'
+            '4. ใส่เหตุผล (ข้ามได้)\n\n'
+            'ตัวอย่าง: ลาพักร้อน 2026-06-01 (1 วัน)\n'
+            'ตัวอย่าง: ลาป่วย 2026-06-01 ถึง 2026-06-03 ไปพบแพทย์\n\n'
+            'แตะประเภทการลาด้านล่างเพื่อเริ่ม:'
+        ),
+        'id': (
+            'Alur pengajuan cuti:\n'
+            '1. Pilih jenis cuti (mis: Tahunan, Pribadi, Sakit)\n'
+            '2. Masukkan tanggal mulai (YYYY-MM-DD)\n'
+            '3. Masukkan tanggal selesai (1 hari ketuk "Hari yang sama")\n'
+            '4. Masukkan alasan (boleh dilewati)\n\n'
+            'Contoh: Cuti tahunan 2026-06-01 (1 hari)\n'
+            'Contoh: Sakit 2026-06-01 s/d 2026-06-03 Periksa dokter\n\n'
+            'Ketuk jenis cuti di bawah untuk mulai:'
+        ),
+    },
     'leave_title': {
         'zh-TW': ' 請假申請',
         'en': ' Leave Request',
@@ -2211,6 +2273,62 @@ _LINE_TMPL = {
         'id': 'Format tanggal tidak valid. Harap gunakan YYYY-MM-DD, contoh: {today}',
     },
     # ── Overtime flow ────────────────────────────────────────────────────
+    'ot_intro': {
+        'zh-TW': (
+            '加班申請流程：\n'
+            '1. 選擇或輸入加班日期（格式：YYYY-MM-DD）\n'
+            '2. 輸入開始時間（格式：HH:MM，例：18:00）\n'
+            '3. 輸入結束時間（格式：HH:MM，例：21:00）\n'
+            '4. 輸入加班原因（可跳過）\n\n'
+            '範例：今天 18:00 ～ 21:00，共 3 小時\n\n'
+            '請選擇加班日期：'
+        ),
+        'en': (
+            'Overtime application flow:\n'
+            '1. Select or enter date (YYYY-MM-DD)\n'
+            '2. Enter start time (HH:MM, e.g. 18:00)\n'
+            '3. Enter end time (HH:MM, e.g. 21:00)\n'
+            '4. Enter reason (optional)\n\n'
+            'Example: Today 18:00 - 21:00, 3 hours total\n\n'
+            'Please select the overtime date:'
+        ),
+        'ja': (
+            '残業申請の流れ：\n'
+            '1. 残業日を選択または入力（YYYY-MM-DD形式）\n'
+            '2. 開始時間を入力（HH:MM形式、例：18:00）\n'
+            '3. 終了時間を入力（HH:MM形式、例：21:00）\n'
+            '4. 理由を入力（省略可）\n\n'
+            '例：今日 18:00 〜 21:00、計3時間\n\n'
+            '残業日を選択してください：'
+        ),
+        'vi': (
+            'Quy trình xin làm thêm giờ:\n'
+            '1. Chọn hoặc nhập ngày (YYYY-MM-DD)\n'
+            '2. Nhập giờ bắt đầu (HH:MM, ví dụ: 18:00)\n'
+            '3. Nhập giờ kết thúc (HH:MM, ví dụ: 21:00)\n'
+            '4. Nhập lý do (có thể bỏ qua)\n\n'
+            'Ví dụ: Hôm nay 18:00 - 21:00, tổng 3 giờ\n\n'
+            'Vui lòng chọn ngày làm thêm:'
+        ),
+        'th': (
+            'ขั้นตอนการขอล่วงเวลา:\n'
+            '1. เลือกหรือพิมพ์วันที่ (YYYY-MM-DD)\n'
+            '2. ใส่เวลาเริ่มต้น (HH:MM เช่น 18:00)\n'
+            '3. ใส่เวลาสิ้นสุด (HH:MM เช่น 21:00)\n'
+            '4. ใส่เหตุผล (ข้ามได้)\n\n'
+            'ตัวอย่าง: วันนี้ 18:00 - 21:00 รวม 3 ชั่วโมง\n\n'
+            'กรุณาเลือกวันที่ทำงานล่วงเวลา:'
+        ),
+        'id': (
+            'Alur pengajuan lembur:\n'
+            '1. Pilih atau masukkan tanggal (YYYY-MM-DD)\n'
+            '2. Masukkan waktu mulai (HH:MM, mis: 18:00)\n'
+            '3. Masukkan waktu selesai (HH:MM, mis: 21:00)\n'
+            '4. Masukkan alasan (boleh dilewati)\n\n'
+            'Contoh: Hari ini 18:00 - 21:00, total 3 jam\n\n'
+            'Pilih tanggal lembur:'
+        ),
+    },
     'ot_title': {
         'zh-TW': '⏰ 加班申請',
         'en': '⏰ Overtime Request',
