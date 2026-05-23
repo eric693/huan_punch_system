@@ -14295,11 +14295,11 @@ async function loadAdminDrvAllw() {
 }
 
 async function reviewDrvAllw(id, action) {
-  const reviewed_by = (currentAdmin && currentAdmin.username) || '管理員';
   let review_note = '';
   if (action === 'reject') {
     review_note = prompt('退回原因（可留空）') || '';
   }
+  const reviewed_by = '管理員';
   const r = await fetch(`/api/admin/driver-allowance/${id}/review`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -14308,8 +14308,7 @@ async function reviewDrvAllw(id, action) {
   if (r.ok) {
     showToast(action==='approve'?'已核准':'已退回');
     loadAdminDrvAllw();
-    // 更新 dashboard 待辦數
-    loadPendingCounts && loadPendingCounts();
+    refreshBadges();
   } else {
     const d = await r.json();
     showToast(d.error||'操作失敗', 'error');

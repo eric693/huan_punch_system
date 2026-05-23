@@ -6783,7 +6783,7 @@ def api_driver_allw_my_history():
 
 
 @app.route('/api/admin/driver-allowance', methods=['GET'])
-@require_admin
+@login_required
 def api_admin_driver_allw_list():
     status_filter = request.args.get('status', 'pending')
     with get_db() as conn:
@@ -6822,7 +6822,7 @@ def api_admin_driver_allw_list():
 
 
 @app.route('/api/admin/driver-allowance/<int:rid>/review', methods=['POST'])
-@require_admin
+@login_required
 def api_admin_driver_allw_review(rid):
     b = request.get_json(force=True)
     action = b.get('action')
@@ -6843,7 +6843,7 @@ def api_admin_driver_allw_review(rid):
 
 
 @app.route('/api/admin/driver-allowance/<int:rid>', methods=['DELETE'])
-@require_admin
+@login_required
 def api_admin_driver_allw_delete(rid):
     with get_db() as conn:
         conn.execute("DELETE FROM driver_allowance_requests WHERE id=%s", (rid,))
