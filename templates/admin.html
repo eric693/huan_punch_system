@@ -549,7 +549,7 @@ tbody td.date-cell { font-family: 'Noto Sans TC', sans-serif; font-weight: 500; 
             <label class="form-label" data-i18n="lbl.punch_type">打卡類型</label>
             <select class="form-input" id="man-type" style="width:100%">
               <option value="in" data-i18n="punch.label.in">上班打卡</option><option value="out" data-i18n="punch.label.out">下班打卡</option>
-              <option value="break_out" data-i18n="punch.label.break_out">休息開始</option><option value="break_in" data-i18n="punch.label.break_in">休息結束</option>
+              <option value="break_out" data-i18n="punch.label.break_out">開車去</option><option value="break_in" data-i18n="punch.label.break_in">開車回</option>
             </select>
           </div>
           <div style="margin-bottom:14px"><label class="form-label" data-i18n="lbl.corr_time">補打時間</label><input class="form-input" type="datetime-local" id="man-time" style="width:100%"></div>
@@ -5144,8 +5144,8 @@ tbody td.date-cell { font-family: 'Noto Sans TC', sans-serif; font-weight: 500; 
           <select class="form-input" id="prm-type">
             <option value="in">上班打卡</option>
             <option value="out">下班打卡</option>
-            <option value="break_out">休息開始</option>
-            <option value="break_in">休息結束</option>
+            <option value="break_out">開車去</option>
+            <option value="break_in">開車回</option>
           </select>
         </div>
         <div class="form-group">
@@ -6409,7 +6409,7 @@ const TRANSLATIONS = {
     'search.staff_placeholder':'搜尋員工...',
     // Punch labels
     'punch.label.in':'上班打卡','punch.label.out':'下班打卡',
-    'punch.label.break_out':'休息開始','punch.label.break_in':'休息結束',
+    'punch.label.break_out':'開車去','punch.label.break_in':'開車回',
     // Request status labels
     'req.status.pending':'待審核','req.status.approved':'已核准','req.status.rejected':'已退回',
     // Sched status labels
@@ -6630,7 +6630,7 @@ const TRANSLATIONS = {
     'opt.half_year':'半年','opt.yearly_period':'年度',
     'opt.transportation':'交通費','opt.accommodation':'住宿費','opt.meals':'餐費',
     'opt.clock_in':'上班打卡','opt.clock_out':'下班打卡',
-    'opt.break_start':'休息開始','opt.break_end':'休息結束',
+    'opt.break_start':'開車去','opt.break_end':'開車回',
     'opt.gps_optional':'不強制（記錄距離但不阻擋打卡）',
     'opt.gps_mandatory':'強制（超出所有地點範圍則禁止打卡）',
     'opt.active_staff':'在職',
@@ -7284,7 +7284,7 @@ const TRANSLATIONS = {
     'search.staff_placeholder':'Search staff...',
     // Punch labels
     'punch.label.in':'Clock In','punch.label.out':'Clock Out',
-    'punch.label.break_out':'Break Start','punch.label.break_in':'Break End',
+    'punch.label.break_out':'Drive Out','punch.label.break_in':'Drive Back',
     // Request status labels
     'req.status.pending':'Pending','req.status.approved':'Approved','req.status.rejected':'Rejected',
     // Sched status labels
@@ -8155,7 +8155,7 @@ const TRANSLATIONS = {
     'search.staff_placeholder':'スタッフ検索...',
     // Punch labels
     'punch.label.in':'出勤','punch.label.out':'退勤',
-    'punch.label.break_out':'休憩開始','punch.label.break_in':'休憩終了',
+    'punch.label.break_out':'外出','punch.label.break_in':'帰着',
     // Request status labels
     'req.status.pending':'審査中','req.status.approved':'承認済','req.status.rejected':'却下',
     // Sched status labels
@@ -9009,7 +9009,7 @@ const TRANSLATIONS = {
     'adminmgr.desc':'Quản lý tài khoản đăng nhập admin, cấu hình các module có thể truy cập cho từng tài khoản',
     'stores.desc':'Quản lý nhiều cửa hàng và phân công nhân viên cho các cửa hàng tương ứng',
     'search.staff_placeholder':'Tìm nhân viên...',
-    'punch.label.in':'Vào ca','punch.label.out':'Tan ca','punch.label.break_out':'Bắt đầu nghỉ','punch.label.break_in':'Kết thúc nghỉ',
+    'punch.label.in':'Vào ca','punch.label.out':'Tan ca','punch.label.break_out':'Lái xe đi','punch.label.break_in':'Lái xe về',
     'req.status.pending':'Chờ duyệt','req.status.approved':'Đã duyệt','req.status.rejected':'Từ chối',
     'sched.status.pending':'Đang xét','sched.status.approved':'Đã duyệt','sched.status.rejected':'Từ chối',
     'sched.status.modified_pending':'Sửa đổi chờ','sched.status.not_submitted':'Chưa nộp',
@@ -9848,7 +9848,7 @@ const TRANSLATIONS = {
     'adminmgr.desc':'จัดการบัญชีเข้าสู่ระบบแอดมิน ตั้งค่าโมดูลที่เข้าถึงได้สำหรับแต่ละบัญชี',
     'stores.desc':'จัดการหลายสาขาและมอบหมายพนักงานให้กับสาขาที่เกี่ยวข้อง',
     'search.staff_placeholder':'ค้นหาพนักงาน...',
-    'punch.label.in':'เข้างาน','punch.label.out':'ออกงาน','punch.label.break_out':'เริ่มพัก','punch.label.break_in':'สิ้นสุดพัก',
+    'punch.label.in':'เข้างาน','punch.label.out':'ออกงาน','punch.label.break_out':'ขับรถออก','punch.label.break_in':'ขับรถกลับ',
     'req.status.pending':'รออนุมัติ','req.status.approved':'อนุมัติแล้ว','req.status.rejected':'ปฏิเสธ',
     'sched.status.pending':'กำลังพิจารณา','sched.status.approved':'อนุมัติแล้ว','sched.status.rejected':'ปฏิเสธ',
     'sched.status.modified_pending':'แก้ไขรออนุมัติ','sched.status.not_submitted':'ยังไม่ยื่น',
@@ -10700,7 +10700,7 @@ const TRANSLATIONS = {
     'search.staff_placeholder':'搜索员工...',
     // Punch labels
     'punch.label.in':'上班打卡','punch.label.out':'下班打卡',
-    'punch.label.break_out':'休息开始','punch.label.break_in':'休息结束',
+    'punch.label.break_out':'开车去','punch.label.break_in':'开车回',
     // Request status labels
     'req.status.pending':'待审核','req.status.approved':'已核准','req.status.rejected':'已退回',
     // Sched status labels
@@ -11566,7 +11566,7 @@ const TRANSLATIONS = {
     'search.staff_placeholder':'Cari karyawan...',
     // Punch labels
     'punch.label.in':'Absen Masuk','punch.label.out':'Absen Keluar',
-    'punch.label.break_out':'Mulai Istirahat','punch.label.break_in':'Selesai Istirahat',
+    'punch.label.break_out':'Keluar','punch.label.break_in':'Kembali',
     // Request status labels
     'req.status.pending':'Menunggu','req.status.approved':'Disetujui','req.status.rejected':'Ditolak',
     // Sched status labels
@@ -12504,7 +12504,7 @@ const _AUTO_TAG_MAP = {
   '半年':'opt.half_year','年度':'opt.yearly_period',
   '交通費':'opt.transportation','住宿費':'opt.accommodation','餐費':'opt.meals',
   '上班打卡':'opt.clock_in','下班打卡':'opt.clock_out',
-  '休息開始':'opt.break_start','休息結束':'opt.break_end',
+  '開車去':'opt.break_start','開車回':'opt.break_end',
   '不強制（記錄距離但不阻擋打卡）':'opt.gps_optional',
   '強制（超出所有地點範圍則禁止打卡）':'opt.gps_mandatory',
   '在職':'opt.active_staff','月薪':'opt.monthly_salary',
@@ -15882,7 +15882,7 @@ async function openSalDetail(id) {
           <th style="padding:5px 8px;text-align:left;border-bottom:1px solid var(--border)" data-i18n="th.date_col">日期</th>
           <th style="padding:5px 8px;text-align:center;border-bottom:1px solid var(--border)" data-i18n="th.check_in">上班</th>
           <th style="padding:5px 8px;text-align:center;border-bottom:1px solid var(--border)" data-i18n="th.check_out">下班</th>
-          <th style="padding:5px 8px;text-align:center;border-bottom:1px solid var(--border)">休息</th>
+          <th style="padding:5px 8px;text-align:center;border-bottom:1px solid var(--border)">外出</th>
           <th style="padding:5px 8px;text-align:right;border-bottom:1px solid var(--border)">實際工時</th>
         </tr>
         ${data.punch_details.map(pd=>`<tr style="border-bottom:1px solid #f0f2f8">

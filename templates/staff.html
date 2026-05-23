@@ -222,8 +222,8 @@ html,body{min-height:100%;background:var(--navy);font-family:"Noto Sans TC","Not
         <div class="punch-grid">
           <button class="punch-btn p-in"   id="btn-in"   onclick="doPunch('in')">上班打卡<div class="p-sub">Clock In</div></button>
           <button class="punch-btn p-out"  id="btn-out"  onclick="doPunch('out')">下班打卡<div class="p-sub">Clock Out</div></button>
-          <button class="punch-btn p-bout" id="btn-bout" onclick="doPunch('break_out')">休息開始<div class="p-sub">Break Out</div></button>
-          <button class="punch-btn p-bin"  id="btn-bin"  onclick="doPunch('break_in')">休息結束<div class="p-sub">Break In</div></button>
+          <button class="punch-btn p-bout" id="btn-bout" onclick="doPunch('break_out')">開車去<div class="p-sub">Drive Out</div></button>
+          <button class="punch-btn p-bin"  id="btn-bin"  onclick="doPunch('break_in')">開車回<div class="p-sub">Drive Back</div></button>
         </div>
         <div class="log-section" id="today-log-wrap" style="display:none">
           <div class="section-label" data-i18n-staff="punch.today_log">今日打卡記錄</div>
@@ -239,7 +239,7 @@ html,body{min-height:100%;background:var(--navy);font-family:"Noto Sans TC","Not
             <div class="fl" data-i18n-staff="field.punch_type">打卡類型</div>
             <select class="fi" id="req-type" style="margin-bottom:8px">
               <option value="in" data-i18n-staff="pt.in">上班打卡</option><option value="out" data-i18n-staff="pt.out">下班打卡</option>
-              <option value="break_out" data-i18n-staff="pt.break_out">休息開始</option><option value="break_in" data-i18n-staff="pt.break_in">休息結束</option>
+              <option value="break_out" data-i18n-staff="pt.break_out">開車去</option><option value="break_in" data-i18n-staff="pt.break_in">開車回</option>
             </select>
           </div>
           <div style="margin-bottom:10px">
@@ -661,7 +661,7 @@ html,body{min-height:100%;background:var(--navy);font-family:"Noto Sans TC","Not
 
 <script>
 let DAYS=['日','一','二','三','四','五','六'];
-let PLABEL={in:'上班打卡',out:'下班打卡',break_out:'休息開始',break_in:'休息結束'};
+let PLABEL={in:'上班打卡',out:'下班打卡',break_out:'開車去',break_in:'開車回'};
 const PLCLS={in:'lb-in',out:'lb-out',break_out:'lb-bout',break_in:'lb-bin'};
 let SLABEL={pending:'審核中',approved:'已核准',rejected:'已退回',modified_pending:'修改待審'};
 const SCLS={pending:'sb-pending',approved:'sb-approved',rejected:'sb-rejected',modified_pending:'sb-modified'};
@@ -3028,7 +3028,7 @@ const STAFF_I18N = {
     'punch.success':' 成功','punch.fail':'打卡失敗','punch.net_err':'網路錯誤，請重試',
     'punch.dist':'距離打卡地點 {0} 公尺',
     'punch.no_records':'尚無打卡記錄','punch.manual':'補打卡',
-    'pt.in':'上班打卡','pt.out':'下班打卡','pt.break_out':'休息開始','pt.break_in':'休息結束',
+    'pt.in':'上班打卡','pt.out':'下班打卡','pt.break_out':'開車去','pt.break_in':'開車回',
     'req.need_reason':'請填寫補打原因','req.need_time':'請選擇補打時間',
     'req.sent':'補打卡申請已送出，等待主管審核','req.net_err':'網路錯誤',
     'status.pending':'審核中','status.approved':'已核准','status.rejected':'已退回',
@@ -3043,7 +3043,7 @@ const STAFF_I18N = {
     'leave.doc_ph':'點擊上傳病單（圖片或 PDF）',
     'att.days':'出勤天數','att.total_hours':'總工時（估）','att.avg_hours':'日均工時',
     'att.detail':'打卡明細',
-    'att.punch_types.in':'上班','att.punch_types.out':'下班','att.punch_types.break_out':'休息','att.punch_types.break_in':'回來',
+    'att.punch_types.in':'上班','att.punch_types.out':'下班','att.punch_types.break_out':'開車去','att.punch_types.break_in':'開車回',
     'att.manual':'<i class="bi bi-pencil-fill"></i> 補打卡',
     'ot.weekday_short':'平日','ot.rest_day_short':'休息日','ot.holiday_short':'國定假日','ot.special_short':'例假日',
     'ot.need_date':'請填寫加班日期','ot.need_start':'請填寫開始時間',
@@ -3301,7 +3301,7 @@ const STAFF_I18N = {
     'punch.success':' success','punch.fail':'Punch failed','punch.net_err':'Network error, please retry',
     'punch.dist':'Distance from punch location: {0}m',
     'punch.no_records':'No punch records today','punch.manual':'Makeup punch',
-    'pt.in':'Clock In','pt.out':'Clock Out','pt.break_out':'Break Start','pt.break_in':'Break End',
+    'pt.in':'Clock In','pt.out':'Clock Out','pt.break_out':'Drive Out','pt.break_in':'Drive Back',
     'req.need_reason':'Please enter a reason','req.need_time':'Please select punch time',
     'req.sent':'Makeup punch request submitted, pending approval','req.net_err':'Network error',
     'status.pending':'Pending','status.approved':'Approved','status.rejected':'Rejected',

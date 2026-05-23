@@ -1217,7 +1217,7 @@ def api_punch_my_records():
         """, (sid, _mr_start, _mr_end)).fetchall()
     from datetime import timezone as _tz2, timedelta as _tdb
     TW = _tz2(_tdb(hours=8))
-    LABEL = {'in': '上班', 'out': '下班', 'break_out': '休息開始', 'break_in': '休息結束'}
+    LABEL = {'in': '上班', 'out': '下班', 'break_out': '開車去', 'break_in': '開車回'}
     result = {}
     for r in rows:
         pa = r['punched_at']
@@ -2572,8 +2572,8 @@ def _handle_line_punch_event(event, cfg):
     PUNCH_CMDS = {
         '上班': 'in', '上班打卡': 'in',
         '下班': 'out', '下班打卡': 'out',
-        '休息': 'break_out', '休息開始': 'break_out',
-        '回來': 'break_in', '休息結束': 'break_in',
+        '休息': 'break_out', '休息開始': 'break_out', '開車去': 'break_out',
+        '回來': 'break_in', '休息結束': 'break_in', '開車回': 'break_in',
     }
     # Merge custom rich-menu button texts for punch positions (0=in, 1=out) only
     try:

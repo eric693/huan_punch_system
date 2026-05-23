@@ -1831,8 +1831,8 @@ _LINE_TMPL = {
         'id': 'Akun "{username}" tidak ditemukan.\n\nHarap verifikasi akun Anda atau tanya admin untuk akun login Anda.',
     },
     'bind_success': {
-        'zh-TW': ' 綁定成功！\n歡迎 {name}！\n\n打卡方式：\n 傳送位置訊息 → 自動打卡\n 或輸入：上班 / 下班 / 休息 / 回來\n\n輸入「狀態」可查看今日打卡記錄。',
-        'en': ' Account linked successfully!\nWelcome {name}!\n\nHow to punch:\n Send location → Auto punch\n Or type: Clock In / Clock Out / Break / Return\n\nType "Status" to view today\'s records.',
+        'zh-TW': ' 綁定成功！\n歡迎 {name}！\n\n打卡方式：\n 傳送位置訊息 → 自動打卡\n 或輸入：上班 / 下班 / 開車去 / 開車回\n\n輸入「狀態」可查看今日打卡記錄。',
+        'en': ' Account linked successfully!\nWelcome {name}!\n\nHow to punch:\n Send location → Auto punch\n Or type: Clock In / Clock Out / Drive Out / Drive Back\n\nType "Status" to view today\'s records.',
         'ja': ' 連携完了！\nようこそ {name}！\n\n打刻方法：\n 位置情報を送信 → 自動打刻\n または入力：出勤 / 退勤 / 休憩 / 戻る\n\n「状態」と入力すると本日の打刻記録を確認できます。',
         'vi': ' Liên kết thành công!\nChào mừng {name}!\n\nCách chấm công:\n Gửi vị trí → Tự động chấm công\n Hoặc nhập: Vào ca / Ra ca / Nghỉ / Trở lại\n\nNhập "Trạng thái" để xem hồ sơ hôm nay.',
         'th': ' ผูกบัญชีสำเร็จ!\nยินดีต้อนรับ {name}!\n\nวิธีตอกบัตร:\n ส่งตำแหน่ง → ตอกบัตรอัตโนมัติ\n หรือพิมพ์: เข้างาน / ออกงาน / พัก / กลับมา\n\nพิมพ์ "สถานะ" เพื่อดูบันทึกวันนี้',
@@ -1864,20 +1864,20 @@ _LINE_TMPL = {
         'id': 'Absen Pulang',
     },
     'label_break_out': {
-        'zh-TW': '休息開始',
-        'en': 'Break Start',
-        'ja': '休憩開始',
-        'vi': 'Bắt đầu nghỉ',
-        'th': 'เริ่มพัก',
-        'id': 'Mulai Istirahat',
+        'zh-TW': '開車去',
+        'en': 'Drive Out',
+        'ja': '外出',
+        'vi': 'Lái xe đi',
+        'th': 'ขับรถออก',
+        'id': 'Keluar',
     },
     'label_break_in': {
-        'zh-TW': '休息結束',
-        'en': 'Break End',
-        'ja': '休憩終了',
-        'vi': 'Kết thúc nghỉ',
-        'th': 'สิ้นสุดพัก',
-        'id': 'Selesai Istirahat',
+        'zh-TW': '開車回',
+        'en': 'Drive Back',
+        'ja': '帰着',
+        'vi': 'Lái xe về',
+        'th': 'ขับรถกลับ',
+        'id': 'Kembali',
     },
     'slabel_in': {
         'zh-TW': '上班',
@@ -1896,19 +1896,19 @@ _LINE_TMPL = {
         'id': 'Pulang',
     },
     'slabel_break_out': {
-        'zh-TW': '休息開始',
-        'en': 'Break',
-        'ja': '休憩開始',
-        'vi': 'Nghỉ',
-        'th': 'พัก',
-        'id': 'Istirahat',
+        'zh-TW': '開車去',
+        'en': 'Drive Out',
+        'ja': '外出',
+        'vi': 'Lái xe đi',
+        'th': 'ขับรถออก',
+        'id': 'Keluar',
     },
     'slabel_break_in': {
-        'zh-TW': '休息結束',
-        'en': 'Return',
-        'ja': '休憩終了',
-        'vi': 'Trở lại',
-        'th': 'กลับมา',
+        'zh-TW': '開車回',
+        'en': 'Drive Back',
+        'ja': '帰着',
+        'vi': 'Lái xe về',
+        'th': 'ขับรถกลับ',
         'id': 'Kembali',
     },
     # ── Punch flow ───────────────────────────────────────────────────────
@@ -2652,7 +2652,7 @@ _LINE_TMPL = {
             '哈囉 {name}！以下是可用的指令：\n\n'
             '─── 打卡 ───\n'
             ' 傳送位置 → 自動打卡\n'
-            ' 上班 / 下班\n'
+            ' 上班 / 下班 / 開車去 / 開車回\n'
             ' 狀態 → 今日打卡記錄\n\n'
             '─── 查詢 ───\n'
             ' 查餘假 → 本年假期餘額\n'
@@ -2673,7 +2673,7 @@ _LINE_TMPL = {
             'Hello {name}! Here are the available commands:\n\n'
             '─── Punch ───\n'
             ' Send Location → Auto punch\n'
-            ' Clock In / Clock Out\n'
+            ' Clock In / Clock Out / Drive Out / Drive Back\n'
             ' Status → Today\'s records\n\n'
             '─── Query ───\n'
             ' Leave Balance → Annual leave balance\n'
