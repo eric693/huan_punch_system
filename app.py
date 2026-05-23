@@ -2822,6 +2822,10 @@ def _calc_today_pay(staff):
     if salary_type == 'hourly':
         base_hourly = float(staff.get('hourly_rate') or 0)
         daily_pay   = round(hours_worked * base_hourly, 0) if hours_worked else 0.0
+    elif salary_type == 'daily':
+        daily_rate  = float(staff.get('base_salary') or 0)
+        base_hourly = daily_rate / daily_hours if daily_hours else 0.0
+        daily_pay   = round(daily_rate, 0) if has_in else 0.0   # 有打卡即算全日薪
     else:
         base_salary = float(staff.get('base_salary') or 0)
         base_hourly = base_salary / (30 * daily_hours) if daily_hours else 0.0
@@ -4143,6 +4147,8 @@ def _calc_ot_pay(staff_row, ot_hours, day_type='weekday'):
 
     if salary_type == 'hourly':
         base_hourly = hourly_rate
+    elif salary_type == 'daily':
+        base_hourly = base_salary / daily_hours if (base_salary and daily_hours) else 0
     else:
         base_hourly = base_salary / 30 / daily_hours if (base_salary and daily_hours) else 0
 
@@ -5695,17 +5701,25 @@ def _auto_generate_salary(conn, staff, month, work_days=None, batch_ctx=None):
         ot_pay         = float(ot_rows['total']) if ot_rows else 0.0
         total_ot_hours = float(ot_rows['hrs'])   if ot_rows else 0.0
 
-    # ── 時薪制：從打卡記錄計算工時 ──────────────────────────
+    # ── 時薪制 / 日薪制：從打卡記錄計算工時或出勤天數 ──────────────────────────
     actual_work_hours = 0.0
+    punch_work_days   = 0
     punch_details     = []
+    daily_base_pay    = 0.0
     if salary_type == 'hourly':
         actual_work_hours, punch_work_days, punch_details = _calc_punch_hours(
             conn, staff['id'], month
         )
         # 時薪制本薪：扣除已核准加班時數，避免加班時數以基本時薪重複計算
-        # （加班申請的 ot_pay 已含該時數的完整倍率，無需再以底薪重複計算）
         _regular_hrs = max(0.0, actual_work_hours - total_ot_hours)
         hourly_base_pay = round(_regular_hrs * hourly_rate, 2)
+    elif salary_type == 'daily':
+        actual_work_hours, punch_work_days, punch_details = _calc_punch_hours(
+            conn, staff['id'], month
+        )
+        # 日薪制：有打卡即計全日薪，以出勤天數 × 日薪計算
+        daily_base_pay  = round(base_salary * punch_work_days, 2)
+        hourly_base_pay = 0.0
     else:
         # 月薪制：daily_wage 用於請假扣款
         hourly_base_pay = 0.0
@@ -5742,6 +5756,9 @@ def _auto_generate_salary(conn, staff, month, work_days=None, batch_ctx=None):
     if salary_type == 'hourly':
         daily_wage  = hourly_rate * daily_hours   # 時薪制日薪 = 時薪 × 每日工時
         hourly_wage = hourly_rate
+    elif salary_type == 'daily':
+        daily_wage  = base_salary                  # 日薪制：base_salary 即為日薪
+        hourly_wage = base_salary / daily_hours if daily_hours > 0 else 0
     else:
         daily_wage  = base_salary / 30 if base_salary > 0 else 0
         hourly_wage = daily_wage / daily_hours if daily_hours > 0 else 0
@@ -5794,6 +5811,62 @@ def _auto_generate_salary(conn, staff, month, work_days=None, batch_ctx=None):
             insured_salary = round(hourly_rate * daily_hours * 30, 0)
 
         # 時薪制只加入保險類扣除項（若員工有指定則只取指定中的保險項）
+        staff_item_ids = staff.get('salary_item_ids')
+        if batch_ctx is not None:
+            all_items = batch_ctx['salary_items']
+            deduct_ins_items = [
+                it for it in all_items
+                if it['item_type'] == 'deduction'
+                and ('insured_salary' in (it['formula'] or '') or 'base_salary' in (it['formula'] or ''))
+            ]
+            if staff_item_ids:
+                staff_item_ids_set = set(staff_item_ids)
+                salary_items_rows = [it for it in deduct_ins_items if it['id'] in staff_item_ids_set]
+            else:
+                salary_items_rows = deduct_ins_items
+        elif staff_item_ids:
+            placeholders = ','.join(['%s'] * len(staff_item_ids))
+            salary_items_rows = conn.execute(f"""
+                SELECT * FROM salary_items
+                WHERE active=TRUE AND id IN ({placeholders})
+                  AND item_type='deduction'
+                  AND (formula LIKE '%insured_salary%' OR formula LIKE '%base_salary%')
+                ORDER BY sort_order, id
+            """, staff_item_ids).fetchall()
+        else:
+            salary_items_rows = conn.execute("""
+                SELECT * FROM salary_items
+                WHERE active=TRUE
+                  AND item_type='deduction'
+                  AND (formula LIKE '%insured_salary%' OR formula LIKE '%base_salary%')
+                ORDER BY sort_order, id
+            """).fetchall()
+        for it in salary_items_rows:
+            calc_amt = _eval_formula(it['formula'] or '', base_salary,
+                                     insured_salary, service_years)
+            amt, overridden = _apply_override(it['id'], calc_amt)
+            note = f'手動設定 ${amt}' if overridden else (it['formula'] or '')
+            items.append({
+                'id': it['id'], 'name': it['name'], 'type': 'deduction',
+                'amount': round(amt, 2), 'formula': it['formula'] or '',
+                'calc_note': note,
+            })
+            deduction_total += amt
+
+    elif salary_type == 'daily':
+        # 日薪制：出勤天數 × 日薪（有打卡即計全日薪）
+        items.append({
+            'id': 'daily_base', 'name': '本薪（日薪制）', 'type': 'allowance',
+            'amount': daily_base_pay, 'formula': '',
+            'calc_note': f'{punch_work_days}天出勤 × 日薪${round(base_salary, 0):,.0f}',
+        })
+        allowance_total += daily_base_pay
+
+        # 日薪制保險費以 insured_salary 為準（若未設定則以日薪 × 30 估算）
+        if insured_salary == 0:
+            insured_salary = round(base_salary * 30, 0)
+
+        # 日薪制只加入保險類扣除項
         staff_item_ids = staff.get('salary_item_ids')
         if batch_ctx is not None:
             all_items = batch_ctx['salary_items']
@@ -5984,13 +6057,13 @@ def _auto_generate_salary(conn, staff, month, work_days=None, batch_ctx=None):
         'staff_id':           staff['id'],
         'month':              month,
         'salary_type':        salary_type,
-        'base_salary':        base_salary if salary_type == 'monthly' else 0,
+        'base_salary':        base_salary if salary_type in ('monthly', 'daily') else 0,
         'hourly_rate':        hourly_rate if salary_type == 'hourly' else 0,
-        'hourly_base_pay':    hourly_base_pay if salary_type == 'hourly' else 0,
+        'hourly_base_pay':    hourly_base_pay if salary_type == 'hourly' else (daily_base_pay if salary_type == 'daily' else 0),
         'actual_work_hours':  actual_work_hours if salary_type == 'hourly' else 0,
         'insured_salary':     insured_salary,
         'work_days':          total_work_days,
-        'actual_days':        max(0, actual_days - absent_days),
+        'actual_days':        punch_work_days if salary_type == 'daily' else max(0, actual_days - absent_days),
         'leave_days':         leave_days,
         'unpaid_days':        unpaid_days,
         'absent_days':        absent_days,
@@ -6089,7 +6162,7 @@ def api_salary_records_list():
     with get_db() as conn:
         rows = conn.execute("""
             SELECT sr.*, ps.name as staff_name, ps.role as staff_role,
-                   ps.employee_code, ps.department
+                   ps.employee_code, ps.department, ps.salary_type
             FROM salary_records sr
             JOIN punch_staff ps ON ps.id=sr.staff_id
             WHERE sr.month=%s
@@ -6102,6 +6175,7 @@ def api_salary_records_list():
         d['staff_role']    = r['staff_role']
         d['employee_code'] = r['employee_code'] or ''
         d['department']    = r['department'] or ''
+        d['salary_type']   = r['salary_type'] or 'monthly'
         result.append(d)
     return jsonify(result)
 
@@ -7354,10 +7428,11 @@ def api_export_salary():
     for r in rows:
         items = r['items'] if isinstance(r['items'], list) else _json.loads(r['items'] or '[]')
         sal_type = r['salary_type'] or 'monthly'
+        sal_type_label = '時薪制' if sal_type == 'hourly' else ('日薪制' if sal_type == 'daily' else '月薪制')
         writer.writerow([
             r['employee_code'] or '', r['staff_name'],
             r['department'] or '', r['role'] or '',
-            '時薪制' if sal_type == 'hourly' else '月薪制',
+            sal_type_label,
             float(r['work_days'] or 0), float(r['actual_days'] or 0),
             float(r['leave_days'] or 0), float(r['unpaid_days'] or 0),
             float(r['allowance_total'] or 0), float(r['deduction_total'] or 0),
@@ -8384,6 +8459,7 @@ def api_salary_pdf(rid):
     allow_items  = [i for i in items if i.get('type') == 'allowance']
     deduct_items = [i for i in items if i.get('type') == 'deduction']
     is_hourly = (row['salary_type'] == 'hourly')
+    is_daily  = (row['salary_type'] == 'daily')
 
     def money(v):
         try: return f"${float(v):,.0f}"
@@ -8425,7 +8501,7 @@ def api_salary_pdf(rid):
         </table>"""
 
     status_str = '已確認' if row['status'] == 'confirmed' else '草稿（未確認）'
-    sal_type   = '時薪制' if is_hourly else '月薪制'
+    sal_type   = '時薪制' if is_hourly else ('日薪制' if is_daily else '月薪制')
     attend_str = (f"實際工時 {d.get('actual_work_hours',0)}h × 時薪 ${float(row['hourly_rate'] or 0):,.0f}"
                   if is_hourly else
                   f"出勤 {d.get('actual_days',0)} 天 / 工作日 {d.get('work_days',0)} 天")
@@ -13308,7 +13384,7 @@ def api_export_staff_excel():
                '每日時數','性別','身分證','保險類型','地址','門市','狀態']
     col_w   = [10, 10, 10, 10, 12, 12, 10, 12, 12, 8, 6, 12, 10, 24, 10, 6]
     _xl_write_header(ws, headers, col_w)
-    SAL_LABEL = {'monthly':'月薪制','hourly':'時薪制'}
+    SAL_LABEL = {'monthly':'月薪制','hourly':'時薪制','daily':'日薪制'}
     INS_LABEL = {'regular':'一般','part_time':'兼職','self':'自行投保'}
     data = []
     for r in rows:
@@ -13566,7 +13642,7 @@ def api_export_salary_excel():
         base_val  = float(r['hourly_rate'] or 0) if sal_type == 'hourly' else float(r['base_salary'] or r.get('base_pay', 0) or 0)
         row_vals = [
             r['employee_code'] or '', r['staff_name'], r['department'] or '', r['role'] or '',
-            '時薪制' if sal_type == 'hourly' else '月薪制',
+            '時薪制' if sal_type == 'hourly' else ('日薪制' if sal_type == 'daily' else '月薪制'),
             float(r['work_days'] or 0), float(r['actual_days'] or 0),
             float(r['leave_days'] or 0), float(r['unpaid_days'] or 0),
             float(r['base_pay'] or 0),

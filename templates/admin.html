@@ -1168,6 +1168,7 @@ tbody td.date-cell { font-family: 'Noto Sans TC', sans-serif; font-weight: 500; 
           <option value="">全部</option>
           <option value="monthly">月薪</option>
           <option value="hourly">時薪</option>
+          <option value="daily">日薪</option>
         </select>
         <input class="filter-input" id="sal-filter-q" placeholder="搜尋員工姓名…" oninput="filterSalaryTable()" style="min-width:140px">
         <button class="btn btn-outline btn-sm" onclick="previewSalary()">預覽計算明細</button>
@@ -4187,6 +4188,7 @@ tbody td.date-cell { font-family: 'Noto Sans TC', sans-serif; font-weight: 500; 
           <option value="">全部</option>
           <option value="monthly">月薪</option>
           <option value="hourly">時薪</option>
+          <option value="daily">日薪</option>
         </select>
         <button class="btn btn-outline btn-sm" onclick="loadHrOverview()" data-i18n="btn.search">查詢</button>
         <button class="btn btn-outline btn-sm" onclick="exportHrAnalysisExcel()">匯出 Excel</button>
@@ -5703,8 +5705,8 @@ tbody td.date-cell { font-family: 'Noto Sans TC', sans-serif; font-weight: 500; 
 
         <!-- 薪資設定 -->
         <div class="form-section-title">薪資設定</div>
-        <div class="form-group"><label class="form-label">薪資制度</label><select class="form-input" id="ssm-sal-type" onchange="toggleSalType()"><option value="monthly">月薪制</option><option value="hourly">時薪制</option></select></div>
-        <div class="form-group" id="ssm-base-wrap"><label class="form-label">底薪（月薪）</label><input class="form-input" type="number" id="ssm-base" placeholder="例：28590"></div>
+        <div class="form-group"><label class="form-label">薪資制度</label><select class="form-input" id="ssm-sal-type" onchange="toggleSalType()"><option value="monthly">月薪制</option><option value="hourly">時薪制</option><option value="daily">日薪制</option></select></div>
+        <div class="form-group" id="ssm-base-wrap"><label class="form-label" id="ssm-base-label">底薪（月薪）</label><input class="form-input" type="number" id="ssm-base" placeholder="例：28590"></div>
         <div class="form-group" id="ssm-hourly-wrap" style="display:none"><label class="form-label">時薪</label><input class="form-input" type="number" id="ssm-hourly" placeholder="例：183"></div>
         <div class="form-group"><label class="form-label">投保薪資</label><input class="form-input" type="number" id="ssm-insured" placeholder="依勞健保投保級距"></div>
         <div class="form-group"><label class="form-label">每日工時（小時）</label><input class="form-input" type="number" id="ssm-daily-h" value="8" min="1" max="12" step="0.5"></div>
@@ -6606,7 +6608,7 @@ const TRANSLATIONS = {
     'opt.unpaid':'未結清','opt.overdue':'逾期','opt.paid':'已結清',
     'opt.enable':'啟用','opt.disable':'停用',
     'opt.male':'男','opt.female':'女','opt.not_filled':'未填',
-    'opt.monthly_salary':'月薪制','opt.hourly_wage':'時薪制',
+    'opt.monthly_salary':'月薪制','opt.hourly_wage':'時薪制','opt.daily_wage':'日薪制',
     'opt.part_time':'部分工時','opt.not_insured':'不投保',
     'opt.allowance_type':'津貼（加項）','opt.deduction_type':'扣除（減項）',
     'opt.add_type':'加項','opt.deduct_type':'扣項',
@@ -6782,7 +6784,7 @@ const TRANSLATIONS = {
     'salary.no_records':'尚無薪資記錄，請點「自動產生薪資」',
     'salary.confirmed_badge':'已確認','salary.draft_badge':'草稿',
     'salary.att_display':'出勤 {0}/{1}天','salary.leave_sfx':'假{0}天',
-    'salary.type.hourly':'時薪','salary.type.monthly':'月薪',
+    'salary.type.hourly':'時薪','salary.type.monthly':'月薪','salary.type.daily':'日薪',
     'salary.need_month':'請選擇月份','salary.confirm_gen':'確定自動產生/更新 {0} 的薪資記錄？',
     'salary.generated':'已產生 {0} 筆薪資記錄',
     'salary.detail_title':'{0} 薪資明細 — {1}',
@@ -7017,7 +7019,7 @@ const TRANSLATIONS = {
     'salary_preview.title':'薪資計算預覽 — {0}',
     'salary_preview.calc_fail':'計算失敗：{0}',
     'salary_preview.no_staff':'無在職員工資料',
-    'salary_preview.type.hourly':'時薪','salary_preview.type.monthly':'月薪',
+    'salary_preview.type.hourly':'時薪','salary_preview.type.monthly':'月薪','salary_preview.type.daily':'日薪',
     'salary_preview.no_punch':'無打卡',
     'salary_preview.total_label':'合計應發薪資',
     'bio.load_fail':'載入失敗','bio.no_devices':'尚未綁定任何裝置',
@@ -7481,7 +7483,7 @@ const TRANSLATIONS = {
     'opt.unpaid':'Unpaid','opt.overdue':'Overdue','opt.paid':'Paid',
     'opt.enable':'Enable','opt.disable':'Disable',
     'opt.male':'Male','opt.female':'Female','opt.not_filled':'Not Filled',
-    'opt.monthly_salary':'Monthly Salary','opt.hourly_wage':'Hourly Wage',
+    'opt.monthly_salary':'Monthly Salary','opt.hourly_wage':'Hourly Wage','opt.daily_wage':'Daily Wage',
     'opt.part_time':'Part Time','opt.not_insured':'Not Insured',
     'opt.allowance_type':'Allowance (Add)','opt.deduction_type':'Deduction (Subtract)',
     'opt.add_type':'Add-on','opt.deduct_type':'Deduction',
@@ -7657,7 +7659,7 @@ const TRANSLATIONS = {
     'salary.no_records':'No salary records. Click "Auto Generate Salary".',
     'salary.confirmed_badge':'Confirmed','salary.draft_badge':'Draft',
     'salary.att_display':'{0}/{1} days','salary.leave_sfx':'Leave {0}d',
-    'salary.type.hourly':'Hourly','salary.type.monthly':'Monthly',
+    'salary.type.hourly':'Hourly','salary.type.monthly':'Monthly','salary.type.daily':'Daily',
     'salary.need_month':'Please select a month','salary.confirm_gen':'Auto generate/update {0} salary records?',
     'salary.generated':'{0} salary records generated',
     'salary.detail_title':'{0} Salary Detail — {1}',
@@ -14417,7 +14419,7 @@ async function openOTReview(id) {
   prevEl.style.display = 'none';
   const { ok: pok, data: pd } = await api('/api/overtime/calc-preview', apiJSON({ staff_id: r.staff_id, ot_hours: r.ot_hours, day_type: r.day_type||'weekday' }), true);
   if (pok && pd.base_hourly > 0) {
-    const typeLabel = pd.salary_type==='hourly'?t('opt.hourly_wage'):t('opt.monthly_salary');
+    const typeLabel = pd.salary_type==='hourly'?t('opt.hourly_wage'):(pd.salary_type==='daily'?'日薪制':t('opt.monthly_salary'));
     let detail = `${typeLabel}　時薪 $${pd.base_hourly}/h<br>`;
     if (pd.h1 > 0) detail += `前 ${pd.h1}h × ${pd.ot_rate1} = $${Math.round(pd.base_hourly*pd.h1*pd.ot_rate1)}<br>`;
     if (pd.h2 > 0) detail += `後 ${pd.h2}h × ${pd.ot_rate2} = $${Math.round(pd.base_hourly*pd.h2*pd.ot_rate2)}`;
@@ -15819,6 +15821,7 @@ function filterSalaryTable() {
     const sl = r.status==='confirmed'?'已確認':'草稿';
     const unaccounted = Math.max(0, (r.work_days||0) - (r.actual_days||0) - (r.leave_days||0));
     let anomalyBadge = '';
+    const salTypeLabel = r.salary_type==='hourly'?'時薪':(r.salary_type==='daily'?'日薪':'月薪');
     if (r.salary_type==='hourly') {
       anomalyBadge = `<div style="font-family:'DM Mono',monospace;font-size:12px">${r.actual_work_hours||0}h</div>`;
     } else {
@@ -15828,7 +15831,7 @@ function filterSalaryTable() {
     }
     return `<tr${unaccounted>0?' style="background:rgba(214,66,66,0.04)"':''}>
       <td style="font-family:'DM Mono',monospace;font-size:12px;color:var(--muted)">${escHtml(r.employee_code||'')}</td>
-      <td style="font-weight:600">${escHtml(r.staff_name)}<span style="font-size:10px;color:var(--muted);margin-left:6px">${r.salary_type==='hourly'?'時薪':'月薪'}</span></td>
+      <td style="font-weight:600">${escHtml(r.staff_name)}<span style="font-size:10px;color:var(--muted);margin-left:6px">${salTypeLabel}</span></td>
       <td style="color:var(--muted)">${escHtml(r.department||'')}</td>
       <td>${anomalyBadge}</td>
       <td style="font-family:'DM Mono',monospace;color:var(--green)">$${fmtNum(r.allowance_total)}</td>
@@ -16275,8 +16278,10 @@ function openSalStaffModal(id) {
 function closeSalStaffModal() { document.getElementById('sal-staff-modal').style.display='none'; }
 function toggleSalType() {
   const t = document.getElementById('ssm-sal-type').value;
-  document.getElementById('ssm-base-wrap').style.display   = t==='monthly'?'':'none';
+  document.getElementById('ssm-base-wrap').style.display   = (t==='monthly'||t==='daily')?'':'none';
   document.getElementById('ssm-hourly-wrap').style.display = t==='hourly'?'':'none';
+  const lbl = document.getElementById('ssm-base-label');
+  if (lbl) lbl.textContent = t==='daily' ? '日薪（每日固定薪資）' : '底薪（月薪）';
 }
 async function saveSalStaff() {
   const id = document.getElementById('ssm-id').value;
@@ -19890,7 +19895,7 @@ async function previewSalary() {
   } else {
     const totalNet = recs.reduce((s, x) => s + x.net_pay, 0);
     tbody.innerHTML = recs.map(rec => {
-      const typeLabel = rec.salary_type === 'hourly' ? '時薪' : '月薪';
+      const typeLabel = rec.salary_type === 'hourly' ? '時薪' : (rec.salary_type === 'daily' ? '日薪' : '月薪');
       const otLabel   = rec.ot_count > 0 ? `${rec.ot_count}筆 / ${rec.ot_hours}h` : '—';
       const leaveStyle = rec.unpaid_days > 0 ? 'color:var(--red)' : '';
       const anomaly   = rec.punch_days === 0 ? '<span style="color:var(--amber,#d97706);font-size:11px"><i class="bi bi-exclamation-triangle-fill"></i> 無打卡</span>' : '';
