@@ -511,6 +511,7 @@ def init_db():
         # 每日補貼（餐費、司機補貼）
         "ALTER TABLE punch_staff ADD COLUMN IF NOT EXISTS meal_allowance   NUMERIC(12,2) DEFAULT 0",
         "ALTER TABLE punch_staff ADD COLUMN IF NOT EXISTS driver_allowance NUMERIC(12,2) DEFAULT 0",
+        "ALTER TABLE punch_config ADD COLUMN IF NOT EXISTS driver_allowance_amount NUMERIC(12,2) DEFAULT 125",
     ]
     for sql in migrations:
         try:
@@ -988,14 +989,25 @@ def api_punch_settings_get():
 @login_required
 def api_punch_config_update():
     b = request.get_json(force=True)
-    gps_required     = bool(b.get('gps_required', False))
-    wifi_enabled     = bool(b.get('wifi_enabled', False))
-    wifi_allowed_ips = b.get('wifi_allowed_ips', '').strip() if 'wifi_allowed_ips' in b else None
+    gps_required            = bool(b.get('gps_required', False))
+    wifi_enabled            = bool(b.get('wifi_enabled', False))
+    wifi_allowed_ips        = b.get('wifi_allowed_ips', '').strip() if 'wifi_allowed_ips' in b else None
+    driver_allowance_amount = float(b['driver_allowance_amount']) if 'driver_allowance_amount' in b else None
     with get_db() as conn:
-        if wifi_allowed_ips is not None:
+        if wifi_allowed_ips is not None and driver_allowance_amount is not None:
+            conn.execute(
+                "UPDATE punch_config SET gps_required=%s, wifi_enabled=%s, wifi_allowed_ips=%s, driver_allowance_amount=%s, updated_at=NOW() WHERE id=1",
+                (gps_required, wifi_enabled, wifi_allowed_ips, driver_allowance_amount)
+            )
+        elif wifi_allowed_ips is not None:
             conn.execute(
                 "UPDATE punch_config SET gps_required=%s, wifi_enabled=%s, wifi_allowed_ips=%s, updated_at=NOW() WHERE id=1",
                 (gps_required, wifi_enabled, wifi_allowed_ips)
+            )
+        elif driver_allowance_amount is not None:
+            conn.execute(
+                "UPDATE punch_config SET gps_required=%s, wifi_enabled=%s, driver_allowance_amount=%s, updated_at=NOW() WHERE id=1",
+                (gps_required, wifi_enabled, driver_allowance_amount)
             )
         else:
             conn.execute(
@@ -1020,11 +1032,12 @@ def api_punch_config_get():
     with get_db() as conn:
         cfg = conn.execute("SELECT * FROM punch_config WHERE id=1").fetchone()
     if not cfg:
-        return jsonify({'gps_required': False, 'wifi_enabled': False, 'wifi_allowed_ips': ''})
+        return jsonify({'gps_required': False, 'wifi_enabled': False, 'wifi_allowed_ips': '', 'driver_allowance_amount': 125})
     return jsonify({
-        'gps_required':     cfg['gps_required'],
-        'wifi_enabled':     cfg['wifi_enabled'],
-        'wifi_allowed_ips': cfg['wifi_allowed_ips'] or '',
+        'gps_required':            cfg['gps_required'],
+        'wifi_enabled':            cfg['wifi_enabled'],
+        'wifi_allowed_ips':        cfg['wifi_allowed_ips'] or '',
+        'driver_allowance_amount': float(cfg['driver_allowance_amount'] or 125),
     })
 
 
@@ -2819,10 +2832,13 @@ def _do_line_punch(staff, user_id, lat, lng, forced_type, PUNCH_LABEL):
             if not already:
                 lang = _lang()
                 direction_label = _lmsg('label_break_out', lang) if punch_type == 'break_out' else _lmsg('label_break_in', lang)
+                with get_db() as _cfg_conn:
+                    _cfg = _cfg_conn.execute("SELECT driver_allowance_amount FROM punch_config WHERE id=1").fetchone()
+                _da_amt = int(float(_cfg['driver_allowance_amount'] or 125)) if _cfg else 125
                 msg = _flex_ask('司機補貼申請', '#1A6B3C',
-                    f'剛完成「{direction_label}」打卡，要申請司機補貼 $125 嗎？', '審核通過後加入當月薪資')
+                    f'剛完成「{direction_label}」打卡，要申請司機補貼 ${_da_amt} 嗎？', '審核通過後加入當月薪資')
                 msg['quickReply'] = _qr_pb(
-                    ('申請 $125', f'driver_allw_apply&punch_id={new_punch_id}', '申請司機補貼'),
+                    (f'申請 ${_da_amt}', f'driver_allw_apply&punch_id={new_punch_id}', '申請司機補貼'),
                     ('不用了', f'driver_allw_skip', '不申請'),
                 )
                 _push_line_msg(user_id, msg)
@@ -4960,6 +4976,12 @@ def api_leave_request_review(rid):
 @require_module('leave')
 def api_leave_request_delete(rid):
     with get_db() as conn:
+        old = conn.execute("SELECT * FROM leave_requests WHERE id=%s", (rid,)).fetchone()
+        if not old:
+            return ('', 404)
+        if old['status'] == 'approved':
+            _update_leave_balance(conn, old['staff_id'], old['leave_type_id'],
+                                  str(old['start_date'])[:4], -float(old['total_days']))
         conn.execute("DELETE FROM leave_requests WHERE id=%s", (rid,))
     return jsonify({'deleted': rid})
 
@@ -5324,11 +5346,17 @@ def api_annual_leave_schedule_public():
 def api_leave_balance_update(bid):
     b = request.get_json(force=True)
     with get_db() as conn:
+        old = conn.execute("SELECT * FROM leave_balances WHERE id=%s", (bid,)).fetchone()
+        if not old:
+            return ('', 404)
         row = conn.execute("""
             UPDATE leave_balances SET total_days=%s, used_days=%s, note=%s, updated_at=NOW()
             WHERE id=%s RETURNING *
         """, (float(b.get('total_days',0)), float(b.get('used_days',0)),
               b.get('note',''), bid)).fetchone()
+    _sys_audit('leave', 'update_balance', 'leave_balance', bid,
+               old_data={'total_days': float(old['total_days'] or 0), 'used_days': float(old['used_days'] or 0), 'note': old['note'] or ''},
+               new_data={'total_days': float(b.get('total_days',0)), 'used_days': float(b.get('used_days',0)), 'note': b.get('note','')})
     return jsonify(leave_balance_row(row)) if row else ('', 404)
 
 # ── Leave Summary (for salary integration) ───────────────────────
@@ -6741,11 +6769,13 @@ def api_driver_allw_apply():
             pa = pa.astimezone(_dta.timezone(_dta.timedelta(hours=8)))
         apply_date = pa.date().isoformat() if hasattr(pa, 'date') else str(pa)[:10]
         direction = 'out' if pr['punch_type'] == 'break_out' else 'in'
+        cfg_amt = conn.execute("SELECT driver_allowance_amount FROM punch_config WHERE id=1").fetchone()
+        amount = float(cfg_amt['driver_allowance_amount'] or 125) if cfg_amt else 125
         row = conn.execute("""
             INSERT INTO driver_allowance_requests
               (staff_id, punch_id, direction, amount, apply_date, status)
-            VALUES (%s,%s,%s,125,%s,'pending') RETURNING *
-        """, (sid, punch_id, direction, apply_date)).fetchone()
+            VALUES (%s,%s,%s,%s,%s,'pending') RETURNING *
+        """, (sid, punch_id, direction, amount, apply_date)).fetchone()
     return jsonify({'id': row['id'], 'status': 'pending'}), 201
 
 
