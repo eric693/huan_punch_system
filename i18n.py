@@ -1806,6 +1806,14 @@ _LINE_TMPL = {
         'th': 'ยินดีต้อนรับสู่ระบบตอกบัตรพนักงาน! 👋\n\nกรุณาใส่บัญชีเข้าสู่ระบบเพื่อผูกบัญชี\n\n✏️ ตัวอย่าง:\n  ผูก mary123\n(เปลี่ยน mary123 เป็นบัญชีของคุณ)\n\nไม่รู้บัญชี? ถามผู้ดูแลระบบ',
         'id': 'Selamat datang di Sistem Absensi Karyawan! 👋\n\nSilakan masukkan akun login Anda untuk menyelesaikan pendaftaran.\n\n✏️ Contoh:\n  daftar mary123\n(Ganti mary123 dengan akun Anda)\n\nTidak tahu akun Anda? Tanya admin.',
     },
+    'bind_format_error': {
+        'zh-TW': '格式錯誤，請輸入：\n  綁定 [您的帳號]\n\n範例：綁定 mary123',
+        'en': 'Format error. Please enter:\n  bind [your account]\n\nExample: bind mary123',
+        'ja': '形式エラー。入力してください：\n  連携 [あなたのアカウント]\n\n例：連携 mary123',
+        'vi': 'Lỗi định dạng. Vui lòng nhập:\n  liên kết [tài khoản của bạn]\n\nVí dụ: liên kết mary123',
+        'th': 'รูปแบบผิด กรุณาพิมพ์:\n  ผูก [บัญชีของคุณ]\n\nตัวอย่าง: ผูก mary123',
+        'id': 'Format salah. Harap masukkan:\n  daftar [akun Anda]\n\nContoh: daftar mary123',
+    },
     'bind_placeholder_error': {
         'zh-TW': '請輸入您「實際的」登入帳號，而非說明文字。\n\n範例：綁定 mary123',
         'en': 'Please enter your actual login account, not the example text.\n\nExample: bind mary123',

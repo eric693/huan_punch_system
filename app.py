@@ -2525,11 +2525,11 @@ def _handle_line_punch_event(event, cfg):
         if msg_type == 'text':
             text = msg.get('text', '').strip()
             if text.startswith('綁定 ') or text.startswith('绑定 '):
-                parts = text.split(' ', 2)
-                if len(parts) < 3:
+                parts = text.split(' ', 1)
+                if len(parts) < 2 or not parts[1].strip():
                     _send_line_punch(user_id, _lmsg('bind_format_error', 'zh-TW'))
                     return
-                username, password = parts[1].strip(), parts[2].strip()
+                username = parts[1].strip()
                 if username in ('帳號', '您的帳號', '[您的帳號]', 'username', '帳號名稱'):
                     _send_line_punch(user_id, _lmsg('bind_placeholder_error', 'zh-TW'))
                     return
@@ -2538,7 +2538,7 @@ def _handle_line_punch_event(event, cfg):
                         "SELECT * FROM punch_staff WHERE username=%s AND active=TRUE",
                         (username,)
                     ).fetchone()
-                if not candidate or candidate['password_hash'] != _hash_pw(password):
+                if not candidate:
                     _send_line_punch(user_id, _lmsg('bind_account_not_found', 'zh-TW', username=username))
                     return
                 if candidate['line_user_id']:
