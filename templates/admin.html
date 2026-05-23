@@ -485,6 +485,7 @@ tbody td.date-cell { font-family: 'Noto Sans TC', sans-serif; font-weight: 500; 
       <button class="inv-tab"        id="punchtab-manual"   data-i18n="punch.tab.manual"   onclick="switchPunchTab('manual')">代補打卡</button>
       <button class="inv-tab"        id="punchtab-requests" data-i18n="punch.tab.requests" onclick="switchPunchTab('requests')">補打申請<span class="tab-badge" id="tabdot-punchrq" style="display:none"></span></button>
       <button class="inv-tab"        id="punchtab-overtime" data-i18n="punch.tab.overtime" onclick="switchPunchTab('overtime')">加班申請<span class="tab-badge" id="tabdot-overtime" style="display:none"></span></button>
+      <button class="inv-tab"        id="punchtab-drvallw"  data-i18n="punch.tab.drvallw"  onclick="switchPunchTab('drvallw')">司機補貼<span class="tab-badge" id="tabdot-drvallw" style="display:none"></span></button>
       <button class="inv-tab"        id="punchtab-staff"    data-i18n="punch.tab.staff"    onclick="switchPunchTab('staff')">員工管理</button>
       <button class="inv-tab"        id="punchtab-resigned" data-i18n="punch.tab.resigned" onclick="switchPunchTab('resigned')">離職員工</button>
       <button class="inv-tab"        id="punchtab-gps"      data-i18n="punch.tab.gps"      onclick="switchPunchTab('gps')">GPS 設定</button>
@@ -606,6 +607,20 @@ tbody td.date-cell { font-family: 'Noto Sans TC', sans-serif; font-weight: 500; 
         <button class="btn btn-danger btn-sm"  id="preq-batch-reject"  style="display:none" data-i18n="btn.batch_reject" onclick="batchReview('punch','reject')">批次退回</button>
       </div>
       <div id="preq-list"></div>
+    </div>
+
+    <!-- 司機補貼審核 -->
+    <div id="punch-panel-drvallw" style="display:none">
+      <div class="filter-bar">
+        <span class="filter-label">狀態</span>
+        <select class="filter-input" id="drvallw-filter-status" onchange="loadAdminDrvAllw()" style="min-width:120px">
+          <option value="pending">待審核</option>
+          <option value="all">全部</option>
+          <option value="approved">已核准</option>
+          <option value="rejected">已退回</option>
+        </select>
+      </div>
+      <div id="drvallw-admin-list" style="padding:0 4px"></div>
     </div>
 
     <!-- 加班申請 -->
@@ -6324,7 +6339,7 @@ const TRANSLATIONS = {
     // Punch tabs
     'punch.tab.summary':'出勤摘要','punch.tab.anomaly':'異常告警','punch.tab.mstats':'月統計',
     'punch.tab.records':'打卡記錄','punch.tab.manual':'代補打卡','punch.tab.requests':'補打申請',
-    'punch.tab.overtime':'加班申請','punch.tab.staff':'員工管理','punch.tab.resigned':'離職員工',
+    'punch.tab.overtime':'加班申請','punch.tab.drvallw':'司機補貼','punch.tab.staff':'員工管理','punch.tab.resigned':'離職員工',
     'punch.tab.gps':'GPS 設定','punch.tab.line':'LINE 打卡',
     // Sched tabs
     'sched.tab.shift':'班別排班','sched.tab.shifttypes':'班別設定','sched.tab.calendar':'排休月曆',
@@ -7198,7 +7213,7 @@ const TRANSLATIONS = {
     // Punch tabs
     'punch.tab.summary':'Summary','punch.tab.anomaly':'Alerts','punch.tab.mstats':'Monthly Stats',
     'punch.tab.records':'Records','punch.tab.manual':'Manual Punch','punch.tab.requests':'Punch Req.',
-    'punch.tab.overtime':'Overtime','punch.tab.staff':'Staff','punch.tab.resigned':'Resigned',
+    'punch.tab.overtime':'Overtime','punch.tab.drvallw':'Driver Allowance','punch.tab.staff':'Staff','punch.tab.resigned':'Resigned',
     'punch.tab.gps':'GPS Settings','punch.tab.line':'LINE Punch',
     // Sched tabs
     'sched.tab.shift':'Shift Schedule','sched.tab.shifttypes':'Shift Types','sched.tab.calendar':'Calendar',
@@ -8069,7 +8084,7 @@ const TRANSLATIONS = {
     // Punch tabs
     'punch.tab.summary':'勤怠サマリー','punch.tab.anomaly':'異常アラート','punch.tab.mstats':'月次統計',
     'punch.tab.records':'打刻記録','punch.tab.manual':'手動打刻','punch.tab.requests':'打刻申請',
-    'punch.tab.overtime':'残業申請','punch.tab.staff':'スタッフ','punch.tab.resigned':'退職者',
+    'punch.tab.overtime':'残業申請','punch.tab.drvallw':'運転手当','punch.tab.staff':'スタッフ','punch.tab.resigned':'退職者',
     'punch.tab.gps':'GPS設定','punch.tab.line':'LINE打刻',
     // Sched tabs
     'sched.tab.shift':'シフト表','sched.tab.shifttypes':'シフト種別','sched.tab.calendar':'カレンダー',
@@ -8931,7 +8946,7 @@ const TRANSLATIONS = {
     'brand.title':'Quản trị','brand.sub':'Management System',
     'punch.tab.summary':'Tổng hợp','punch.tab.anomaly':'Cảnh báo','punch.tab.mstats':'Thống kê tháng',
     'punch.tab.records':'Lịch sử','punch.tab.manual':'Chấm bù','punch.tab.requests':'Yêu cầu chấm',
-    'punch.tab.overtime':'Tăng ca','punch.tab.staff':'Nhân viên','punch.tab.resigned':'Đã nghỉ',
+    'punch.tab.overtime':'Tăng ca','punch.tab.drvallw':'Phụ cấp lái xe','punch.tab.staff':'Nhân viên','punch.tab.resigned':'Đã nghỉ',
     'punch.tab.gps':'Cài GPS','punch.tab.line':'LINE Chấm công',
     'sched.tab.shift':'Ca làm việc','sched.tab.shifttypes':'Loại ca','sched.tab.calendar':'Lịch',
     'sched.tab.requests':'Xin nghỉ','sched.tab.summary':'Tổng nhân sự','sched.tab.conflicts':'Xung đột',
@@ -9770,7 +9785,7 @@ const TRANSLATIONS = {
     'brand.title':'ระบบจัดการ','brand.sub':'Management System',
     'punch.tab.summary':'สรุปการเข้างาน','punch.tab.anomaly':'แจ้งเตือน','punch.tab.mstats':'สถิติรายเดือน',
     'punch.tab.records':'บันทึก','punch.tab.manual':'บันทึกแทน','punch.tab.requests':'คำขอบันทึก',
-    'punch.tab.overtime':'ล่วงเวลา','punch.tab.staff':'พนักงาน','punch.tab.resigned':'พ้นงานแล้ว',
+    'punch.tab.overtime':'ล่วงเวลา','punch.tab.drvallw':'เบี้ยเลี้ยงขับรถ','punch.tab.staff':'พนักงาน','punch.tab.resigned':'พ้นงานแล้ว',
     'punch.tab.gps':'ตั้งค่า GPS','punch.tab.line':'LINE บันทึกเวลา',
     'sched.tab.shift':'ตารางกะ','sched.tab.shifttypes':'ประเภทกะ','sched.tab.calendar':'ปฏิทิน',
     'sched.tab.requests':'ขอวันหยุด','sched.tab.summary':'สรุปบุคลากร','sched.tab.conflicts':'ความขัดแย้ง',
@@ -10615,7 +10630,7 @@ const TRANSLATIONS = {
     // Punch tabs
     'punch.tab.summary':'出勤摘要','punch.tab.anomaly':'异常告警','punch.tab.mstats':'月统计',
     'punch.tab.records':'打卡记录','punch.tab.manual':'代补打卡','punch.tab.requests':'补打申请',
-    'punch.tab.overtime':'加班申请','punch.tab.staff':'员工管理','punch.tab.resigned':'离职员工',
+    'punch.tab.overtime':'加班申请','punch.tab.drvallw':'司机补贴','punch.tab.staff':'员工管理','punch.tab.resigned':'离职员工',
     'punch.tab.gps':'GPS 设置','punch.tab.line':'LINE 打卡',
     // Sched tabs
     'sched.tab.shift':'班别排班','sched.tab.shifttypes':'班别设置','sched.tab.calendar':'排休月历',
@@ -11480,7 +11495,7 @@ const TRANSLATIONS = {
     // Punch tabs
     'punch.tab.summary':'Ringkasan','punch.tab.anomaly':'Peringatan','punch.tab.mstats':'Statistik Bulanan',
     'punch.tab.records':'Catatan','punch.tab.manual':'Absen Manual','punch.tab.requests':'Permintaan',
-    'punch.tab.overtime':'Lembur','punch.tab.staff':'Karyawan','punch.tab.resigned':'Resign',
+    'punch.tab.overtime':'Lembur','punch.tab.drvallw':'Tunjangan Sopir','punch.tab.staff':'Karyawan','punch.tab.resigned':'Resign',
     'punch.tab.gps':'Pengaturan GPS','punch.tab.line':'Absen LINE',
     // Sched tabs
     'sched.tab.shift':'Jadwal Shift','sched.tab.shifttypes':'Jenis Shift','sched.tab.calendar':'Kalender',
@@ -13546,7 +13561,7 @@ function initPunch() {
 }
 
 function switchPunchTab(tab) {
-  ['summary','records','manual','requests','overtime','staff','resigned','gps','line','anomaly','mstats'].forEach(t => {
+  ['summary','records','manual','requests','overtime','drvallw','staff','resigned','gps','line','anomaly','mstats'].forEach(t => {
     document.getElementById('punchtab-' + t).classList.toggle('active', t === tab);
     document.getElementById('punch-panel-' + t).style.display = t === tab ? '' : 'none';
   });
@@ -13557,6 +13572,7 @@ function switchPunchTab(tab) {
   if (tab === 'resigned')  loadResignedStaff();
   if (tab === 'requests')  { loadPunchRequests(); setTabDot('tabdot-punchrq', 0); }
   if (tab === 'overtime')  { otFilterChanged(); setTabDot('tabdot-overtime', 0); }
+  if (tab === 'drvallw')   { loadAdminDrvAllw(); setTabDot('tabdot-drvallw', 0); }
   if (tab === 'gps')       loadGpsSettings();
   if (tab === 'line')      loadLinePunchConfig();
   if (tab === 'anomaly')   { loadPunchAnomalies(); setTabDot('tabdot-anomaly', 0); }
@@ -14237,6 +14253,67 @@ async function deletePunchReq(id) {
   await api(`/api/punch/requests/${id}`, { method: 'DELETE' });
   showToast(t('records.deleted'), 'success'); punchReqList = punchReqList.filter(r=>r.id!==id); renderPunchRequests();
   document.getElementById('preq-count').textContent = tf('count.records', punchReqList.length);
+}
+
+// ── 司機補貼審核 ──────────────────────────────────────────────
+async function loadAdminDrvAllw() {
+  const el = document.getElementById('drvallw-admin-list');
+  const status = document.getElementById('drvallw-filter-status').value;
+  el.innerHTML = `<div style="text-align:center;color:var(--muted);font-size:13px;padding:20px">${t('loading')}</div>`;
+  try {
+    const r = await fetch(`/api/admin/driver-allowance?status=${encodeURIComponent(status)}`);
+    if (!r.ok) { el.innerHTML = '<div style="color:var(--red);font-size:13px;padding:10px">載入失敗</div>'; return; }
+    const list = await r.json();
+    if (!list.length) { el.innerHTML = '<div style="text-align:center;color:var(--muted);font-size:13px;padding:20px">目前無記錄</div>'; return; }
+    const stLabel = {pending:'待審核',approved:'已核准',rejected:'已退回'};
+    const stColor  = {pending:'var(--orange)',approved:'var(--green)',rejected:'var(--red)'};
+    el.innerHTML = list.map(row => {
+      const dir = row.direction==='out'?'開車去':'開車回';
+      const st  = stLabel[row.status]||row.status;
+      const sc  = stColor[row.status]||'var(--muted)';
+      const isPending = row.status === 'pending';
+      const reviewNote = row.review_note ? `<div style="font-size:11px;color:var(--muted);margin-top:2px">意見：${escHtml(row.review_note)}</div>` : '';
+      const reviewedBy = row.reviewed_by ? `<div style="font-size:11px;color:var(--muted)">審核人：${escHtml(row.reviewed_by)} ${row.reviewed_at}</div>` : '';
+      const btns = isPending ? `
+        <button onclick="reviewDrvAllw(${row.id},'approve')" style="padding:5px 10px;border-radius:6px;border:none;background:var(--green);color:#fff;font-size:12px;font-weight:700;cursor:pointer;margin-right:4px">核准</button>
+        <button onclick="reviewDrvAllw(${row.id},'reject')" style="padding:5px 10px;border-radius:6px;border:1.5px solid var(--red);background:transparent;color:var(--red);font-size:12px;font-weight:700;cursor:pointer">退回</button>
+      ` : '';
+      return `<div style="display:flex;align-items:center;background:var(--bg);border-radius:9px;padding:12px 14px;margin-bottom:8px;gap:10px">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:700">${escHtml(row.staff_name)} <span style="color:var(--muted);font-weight:400;font-size:11px">${row.employee_code}</span></div>
+          <div style="font-size:12px;color:var(--text);margin-top:2px">${dir} — <span style="color:var(--muted)">${row.apply_date}</span>（打卡 ${row.punched_at}）</div>
+          ${reviewNote}${reviewedBy}
+        </div>
+        <div style="text-align:right;min-width:70px">
+          <div style="font-size:13px;font-weight:700;color:var(--text)">$${row.amount}</div>
+          <div style="font-size:11px;color:${sc};font-weight:600">${st}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:4px">${btns}</div>
+      </div>`;
+    }).join('');
+  } catch(e) { el.innerHTML = '<div style="color:var(--red);font-size:13px;padding:10px">載入失敗</div>'; }
+}
+
+async function reviewDrvAllw(id, action) {
+  const reviewed_by = (currentAdmin && currentAdmin.username) || '管理員';
+  let review_note = '';
+  if (action === 'reject') {
+    review_note = prompt('退回原因（可留空）') || '';
+  }
+  const r = await fetch(`/api/admin/driver-allowance/${id}/review`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, review_note, reviewed_by })
+  });
+  if (r.ok) {
+    showToast(action==='approve'?'已核准':'已退回');
+    loadAdminDrvAllw();
+    // 更新 dashboard 待辦數
+    loadPendingCounts && loadPendingCounts();
+  } else {
+    const d = await r.json();
+    showToast(d.error||'操作失敗', 'error');
+  }
 }
 
 // ── 加班申請 ──────────────────────────────────────────────────
@@ -16893,7 +16970,7 @@ async function toggleAnnPin(id) {
 
 // ── Badges ────────────────────────────────────────────────────
 async function refreshBadges() {
-  const [punchRq, otRq, schedRq1, schedRq2, leaveRq, expenseRq, invStats] = await Promise.all([
+  const [punchRq, otRq, schedRq1, schedRq2, leaveRq, expenseRq, invStats, drvAllwRq] = await Promise.all([
     api('/api/punch/requests?status=pending',                    {}, true),
     api('/api/overtime/requests?status=pending',                 {}, true),
     api('/api/schedule/admin/requests?status=pending',           {}, true),
@@ -16901,18 +16978,20 @@ async function refreshBadges() {
     api('/api/leave/requests?status=pending',                    {}, true),
     api('/api/expense/claims?status=pending',                    {}, true),
     hasModule('inventory') ? api('/api/inventory/stats',         {}, true) : Promise.resolve({ok:false}),
+    api('/api/admin/driver-allowance?status=pending',            {}, true),
   ]);
 
-  const punchRqCnt = punchRq.ok && Array.isArray(punchRq.data) ? punchRq.data.length : 0;
-  const otCnt      = otRq.ok   && Array.isArray(otRq.data)     ? otRq.data.length    : 0;
-  const schedCnt   = (schedRq1.ok && Array.isArray(schedRq1.data) ? schedRq1.data.length : 0) +
-                     (schedRq2.ok && Array.isArray(schedRq2.data) ? schedRq2.data.length : 0);
-  const leaveCnt   = leaveRq.ok && Array.isArray(leaveRq.data)  ? leaveRq.data.length  : 0;
-  const expenseCnt = expenseRq.ok && Array.isArray(expenseRq.data) ? expenseRq.data.length : 0;
+  const punchRqCnt  = punchRq.ok && Array.isArray(punchRq.data) ? punchRq.data.length : 0;
+  const otCnt       = otRq.ok   && Array.isArray(otRq.data)     ? otRq.data.length    : 0;
+  const schedCnt    = (schedRq1.ok && Array.isArray(schedRq1.data) ? schedRq1.data.length : 0) +
+                      (schedRq2.ok && Array.isArray(schedRq2.data) ? schedRq2.data.length : 0);
+  const leaveCnt    = leaveRq.ok && Array.isArray(leaveRq.data)   ? leaveRq.data.length   : 0;
+  const expenseCnt  = expenseRq.ok && Array.isArray(expenseRq.data) ? expenseRq.data.length : 0;
   const lowStockCnt = invStats.ok && invStats.data ? (invStats.data.low_stock_count || 0) : 0;
+  const drvAllwCnt  = drvAllwRq.ok && Array.isArray(drvAllwRq.data) ? drvAllwRq.data.length : 0;
 
   // ── 左側 nav badge（顯示各模組總待審數）──
-  setBadge('badge-punch', punchRqCnt + otCnt);   // 打卡管理 = 補打卡 + 加班
+  setBadge('badge-punch', punchRqCnt + otCnt + drvAllwCnt);   // 打卡管理 = 補打卡 + 加班 + 司機補貼
   setBadge('badge-sched', schedCnt);              // 排班管理 = 排休申請
   setBadge('badge-leave', leaveCnt);              // 請假管理 = 請假申請
   setBadge('badge-expense-review', expenseCnt);   // 費用審核 = 待審費用
@@ -16921,6 +17000,7 @@ async function refreshBadges() {
   // ── Tab 內的小 badge（進入頁面後顯示哪個 tab 有待審）──
   setTabDot('tabdot-punchrq', punchRqCnt);
   setTabDot('tabdot-overtime', otCnt);
+  setTabDot('tabdot-drvallw', drvAllwCnt);
   setTabDot('tabdot-schedrq', schedCnt);
   setTabDot('tabdot-leaverq', leaveCnt);
 }

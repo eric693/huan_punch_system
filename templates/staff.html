@@ -204,6 +204,7 @@ html,body{min-height:100%;background:var(--navy);font-family:"Noto Sans TC","Not
         <button class="tab"        id="tab-mytravel"       data-i18n-staff="tab.mytravel"      onclick="switchTab('mytravel')">差旅申請</button>
         <button class="tab"        id="tab-myloans"  data-i18n-staff="tab.myloans"  onclick="switchTab('myloans')">我的借用</button>
         <button class="tab"        id="tab-biodev"   data-i18n-staff="tab.biodev"   onclick="switchTab('biodev')">安全裝置</button>
+        <button class="tab"        id="tab-drvallw"  data-i18n-staff="tab.drvallw"  onclick="switchTab('drvallw')">司機補貼</button>
       </div>
 
       <!-- 打卡 tab -->
@@ -578,6 +579,27 @@ html,body{min-height:100%;background:var(--navy);font-family:"Noto Sans TC","Not
         </div>
       </div>
 
+      <!-- 司機補貼 tab -->
+      <div id="panel-drvallw" class="tab-body" style="display:none">
+        <div class="card" style="margin-bottom:14px">
+          <div class="card-header"><span class="card-title">申請司機補貼</span></div>
+          <div style="padding:12px 16px">
+            <div style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.6">
+              開車去/開車回打卡後可申請補貼，每趟 $125，主管審核通過後加入當月薪資。
+            </div>
+            <div id="drvallw-eligible-list">
+              <div style="text-align:center;color:var(--muted);font-size:13px;padding:20px">載入中...</div>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">申請記錄</span></div>
+          <div id="drvallw-history-list" style="padding:12px 16px">
+            <div style="text-align:center;color:var(--muted);font-size:13px;padding:20px">載入中...</div>
+          </div>
+        </div>
+      </div>
+
       <!-- 費用報帳 tab -->
       <div id="panel-expense" class="tab-body" style="display:none">
         <!-- 新增費用申請 -->
@@ -736,7 +758,7 @@ function showMain(){
   switchTab('punch');
 }
 function switchTab(tab){
-  ['ann','punch','sched','leave','schedule-view','overtime','attendance','myanomalies','leavereport','payslip','expense','myperf','mytravel','myloans','biodev'].forEach(t=>{
+  ['ann','punch','sched','leave','schedule-view','overtime','attendance','myanomalies','leavereport','payslip','expense','myperf','mytravel','myloans','biodev','drvallw'].forEach(t=>{
     document.getElementById('tab-'+t).classList.toggle('active',t===tab);
     document.getElementById('panel-'+t).style.display=t===tab?'':'none';
   });
@@ -755,6 +777,7 @@ function switchTab(tab){
   if(tab==='mytravel')initMyTravel();
   if(tab==='myloans')loadMyLoans();
   if(tab==='biodev')initBiodevTab();
+  if(tab==='drvallw')initDrvAllwTab();
 }
 
 /* 打卡方式切換 */
@@ -2475,6 +2498,84 @@ function initBiodevTab(){
   loadBioCredList();
 }
 
+// ── 司機補貼 ──────────────────────────────────────────────────────
+async function initDrvAllwTab(){
+  loadDrvAllwEligible();
+  loadDrvAllwHistory();
+}
+
+async function loadDrvAllwEligible(){
+  const el=document.getElementById('drvallw-eligible-list');
+  try{
+    const r=await fetch('/api/driver-allowance/my-eligible');
+    const list=await r.json();
+    const pending=list.filter(x=>!x.req_id);
+    if(!pending.length){
+      el.innerHTML='<div style="text-align:center;color:var(--muted);font-size:13px;padding:20px">目前沒有可申請的打卡記錄</div>';
+      return;
+    }
+    el.innerHTML=pending.map(p=>{
+      const dir=p.punch_type==='break_out'?'開車去 (出)':'開車回 (回)';
+      return `<div style="display:flex;align-items:center;background:var(--bg);border-radius:9px;padding:12px 14px;margin-bottom:8px">
+        <div style="flex:1">
+          <div style="font-size:13px;font-weight:600;color:var(--text)">${dir}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">${p.punched_at}</div>
+        </div>
+        <button onclick="applyDrvAllw(${p.punch_id},this)"
+          style="padding:7px 14px;border-radius:7px;border:none;background:var(--accent);color:#fff;font-size:12px;font-weight:700;cursor:pointer">
+          申請 $125
+        </button>
+      </div>`;
+    }).join('');
+  }catch(e){el.innerHTML='<div style="color:var(--red);font-size:13px;padding:10px">載入失敗</div>';}
+}
+
+async function applyDrvAllw(punch_id, btn){
+  btn.disabled=true;btn.textContent='送出中...';
+  try{
+    const r=await fetch('/api/driver-allowance/apply',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({punch_id})
+    });
+    if(r.ok){
+      showToast('申請成功，等待主管審核');
+      loadDrvAllwEligible();
+      loadDrvAllwHistory();
+    }else{
+      const d=await r.json();
+      showToast(d.error||'申請失敗');
+      btn.disabled=false;btn.textContent='申請 $125';
+    }
+  }catch(e){showToast('網路錯誤');btn.disabled=false;btn.textContent='申請 $125';}
+}
+
+async function loadDrvAllwHistory(){
+  const el=document.getElementById('drvallw-history-list');
+  try{
+    const r=await fetch('/api/driver-allowance/my-history');
+    const list=await r.json();
+    if(!list.length){el.innerHTML='<div style="text-align:center;color:var(--muted);font-size:13px;padding:10px">尚無申請記錄</div>';return;}
+    const statusMap={pending:'審核中',approved:'已核准',rejected:'已退回'};
+    const statusColor={pending:'var(--muted)',approved:'var(--green)',rejected:'var(--red)'};
+    el.innerHTML=list.map(r=>{
+      const dir=r.direction==='out'?'開車去':'開車回';
+      const st=statusMap[r.status]||r.status;
+      const sc=statusColor[r.status]||'var(--muted)';
+      const note=r.review_note?`<div style="font-size:11px;color:var(--muted);margin-top:2px">意見：${escHtml(r.review_note)}</div>`:'';
+      return `<div style="display:flex;align-items:center;background:var(--bg);border-radius:9px;padding:10px 14px;margin-bottom:8px">
+        <div style="flex:1">
+          <div style="font-size:13px;font-weight:600">${dir} <span style="color:var(--muted);font-weight:400;font-size:11px">${r.apply_date}</span></div>
+          ${note}
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:12px;font-weight:700;color:${sc}">${st}</div>
+          <div style="font-size:11px;color:var(--muted)">$${r.amount}</div>
+        </div>
+      </div>`;
+    }).join('');
+  }catch(e){el.innerHTML='<div style="color:var(--red);font-size:13px;padding:10px">載入失敗</div>';}
+}
+
 async function loadBioCredList(){
   const el=document.getElementById('bio-cred-list');
   try{
@@ -3020,7 +3121,7 @@ const STAFF_I18N = {
     'tab.schedule_view':'我的排班','tab.overtime':'加班申請','tab.attendance':'出勤月曆',
     'tab.myanomalies':'異常查詢','tab.leavereport':'假別年報','tab.payslip':'薪資單',
     'tab.expense':'費用報帳','tab.myperf':'我的考核','tab.mytravel':'差旅申請',
-    'tab.myloans':'我的借用','tab.biodev':'安全裝置',
+    'tab.myloans':'我的借用','tab.biodev':'安全裝置','tab.drvallw':'司機補貼',
     'gps.loading':'正在取得定位...','gps.no_support':'裝置不支援 GPS',
     'gps.ok':'定位成功','gps.out_range':'超出打卡範圍','gps.in_range':'範圍內',
     'gps.err_required':'無法取得定位，請允許位置權限','gps.err_optional':'未取得定位（非必要）',
@@ -3293,7 +3394,7 @@ const STAFF_I18N = {
     'tab.schedule_view':'My Schedule','tab.overtime':'Overtime','tab.attendance':'Attendance',
     'tab.myanomalies':'Anomalies','tab.leavereport':'Leave Report','tab.payslip':'Payslip',
     'tab.expense':'Expenses','tab.myperf':'Performance','tab.mytravel':'Travel',
-    'tab.myloans':'My Loans','tab.biodev':'Security',
+    'tab.myloans':'My Loans','tab.biodev':'Security','tab.drvallw':'Driver Allowance',
     'gps.loading':'Getting location...','gps.no_support':'GPS not supported',
     'gps.ok':'Location acquired','gps.out_range':'Outside punch zone','gps.in_range':'In range',
     'gps.err_required':'Cannot get location, please allow GPS','gps.err_optional':'Location unavailable (not required)',
@@ -3559,7 +3660,7 @@ const STAFF_I18N = {
     'tab.schedule_view':'マイシフト','tab.overtime':'残業申請','tab.attendance':'出勤カレンダー',
     'tab.myanomalies':'異常照会','tab.leavereport':'休暇年報','tab.payslip':'給与明細',
     'tab.expense':'経費精算','tab.myperf':'マイ評価','tab.mytravel':'出張申請',
-    'tab.myloans':'借用品','tab.biodev':'セキュリティ',
+    'tab.myloans':'借用品','tab.biodev':'セキュリティ','tab.drvallw':'運転手当',
     'gps.loading':'位置情報取得中...','gps.no_support':'GPS非対応',
     'gps.ok':'位置情報取得済','gps.out_range':'打刻範囲外','gps.in_range':'範囲内',
     'gps.err_required':'位置情報を取得できません、GPS許可してください','gps.err_optional':'位置情報未取得（任意）',
@@ -3825,7 +3926,7 @@ const STAFF_I18N = {
     'tab.schedule_view':'Lịch của tôi','tab.overtime':'Tăng ca','tab.attendance':'Lịch chấm công',
     'tab.myanomalies':'Bất thường','tab.leavereport':'Báo cáo phép','tab.payslip':'Phiếu lương',
     'tab.expense':'Chi phí','tab.myperf':'Đánh giá','tab.mytravel':'Công tác',
-    'tab.myloans':'Đồ mượn','tab.biodev':'Bảo mật',
+    'tab.myloans':'Đồ mượn','tab.biodev':'Bảo mật','tab.drvallw':'Phụ cấp lái xe',
     'gps.loading':'Đang lấy vị trí...','gps.no_support':'Thiết bị không hỗ trợ GPS',
     'gps.ok':'Lấy vị trí thành công','gps.out_range':'Ngoài vùng chấm công','gps.in_range':'Trong vùng',
     'gps.err_required':'Không thể lấy vị trí, vui lòng cấp quyền GPS','gps.err_optional':'Chưa lấy vị trí (không bắt buộc)',
@@ -4091,7 +4192,7 @@ const STAFF_I18N = {
     'tab.schedule_view':'ตารางของฉัน','tab.overtime':'ล่วงเวลา','tab.attendance':'ปฏิทินการเข้างาน',
     'tab.myanomalies':'ผิดปกติ','tab.leavereport':'รายงานการลา','tab.payslip':'สลิปเงินเดือน',
     'tab.expense':'ค่าใช้จ่าย','tab.myperf':'การประเมิน','tab.mytravel':'เดินทาง',
-    'tab.myloans':'ของที่ยืม','tab.biodev':'ความปลอดภัย',
+    'tab.myloans':'ของที่ยืม','tab.biodev':'ความปลอดภัย','tab.drvallw':'เบี้ยเลี้ยงขับรถ',
     'gps.loading':'กำลังรับตำแหน่ง...','gps.no_support':'อุปกรณ์ไม่รองรับ GPS',
     'gps.ok':'รับตำแหน่งสำเร็จ','gps.out_range':'นอกพื้นที่บันทึกเวลา','gps.in_range':'อยู่ในพื้นที่',
     'gps.err_required':'ไม่สามารถรับตำแหน่ง กรุณาอนุญาต GPS','gps.err_optional':'ไม่ได้รับตำแหน่ง (ไม่บังคับ)',
@@ -4357,7 +4458,7 @@ const STAFF_I18N = {
     'tab.schedule_view':'我的排班','tab.overtime':'加班申请','tab.attendance':'出勤月历',
     'tab.myanomalies':'异常查询','tab.leavereport':'假别年报','tab.payslip':'薪资单',
     'tab.expense':'费用报账','tab.myperf':'我的考核','tab.mytravel':'差旅申请',
-    'tab.myloans':'我的借用','tab.biodev':'安全设备',
+    'tab.myloans':'我的借用','tab.biodev':'安全设备','tab.drvallw':'司机补贴',
     'gps.loading':'正在获取定位...','gps.no_support':'设备不支持 GPS',
     'gps.ok':'定位成功','gps.out_range':'超出打卡范围','gps.in_range':'范围内',
     'gps.err_required':'无法获取定位，请允许位置权限','gps.err_optional':'未获取定位（非必要）',
@@ -4622,7 +4723,7 @@ const STAFF_I18N = {
     'tab.schedule_view':'Jadwal Saya','tab.overtime':'Lembur','tab.attendance':'Kalender Kehadiran',
     'tab.myanomalies':'Riwayat Anomali','tab.leavereport':'Laporan Cuti','tab.payslip':'Slip Gaji',
     'tab.expense':'Klaim Pengeluaran','tab.myperf':'Penilaian Kinerja','tab.mytravel':'Perjalanan Dinas',
-    'tab.myloans':'Peminjaman','tab.biodev':'Perangkat Keamanan',
+    'tab.myloans':'Peminjaman','tab.biodev':'Perangkat Keamanan','tab.drvallw':'Tunjangan Sopir',
     'gps.loading':'Mendapatkan lokasi...','gps.no_support':'GPS tidak didukung',
     'gps.ok':'Lokasi berhasil didapat','gps.out_range':'Di luar area absensi','gps.in_range':'Dalam area',
     'gps.err_required':'Tidak dapat mendapatkan lokasi, izinkan GPS','gps.err_optional':'Lokasi tidak tersedia (tidak wajib)',

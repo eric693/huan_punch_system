@@ -2514,6 +2514,41 @@ def _handle_line_punch_event(event, cfg):
         if not staff:
             return
         _line_ctx.lang = staff.get('preferred_lang') or 'zh-TW'
+        # Driver allowance quick-reply postbacks (no conv state needed)
+        if pb_data.startswith('driver_allw_apply'):
+            _params = dict(p.split('=', 1) for p in pb_data.split('&') if '=' in p)
+            _punch_id = _params.get('punch_id')
+            if _punch_id:
+                try:
+                    with get_db() as conn:
+                        _pr = conn.execute(
+                            "SELECT id, punch_type, punched_at FROM punch_records WHERE id=%s AND staff_id=%s",
+                            (int(_punch_id), staff['id'])
+                        ).fetchone()
+                        if _pr:
+                            _existing = conn.execute(
+                                "SELECT id FROM driver_allowance_requests WHERE punch_id=%s", (int(_punch_id),)
+                            ).fetchone()
+                            if _existing:
+                                _send_line_punch(user_id, '此次打卡已申請過司機補貼。')
+                            else:
+                                _direction = 'out' if _pr['punch_type'] == 'break_out' else 'in'
+                                _apply_date = _pr['punched_at'].astimezone(
+                                    __import__('datetime').timezone(__import__('datetime').timedelta(hours=8))
+                                ).date().isoformat()
+                                conn.execute("""
+                                    INSERT INTO driver_allowance_requests
+                                      (staff_id, punch_id, direction, amount, apply_date, status)
+                                    VALUES (%s,%s,%s,125,%s,'pending')
+                                """, (staff['id'], int(_punch_id), _direction, _apply_date))
+                                _send_line_punch(user_id, '司機補貼申請已送出，等待主管審核。審核通過後加入當月薪資。')
+                except Exception as _e:
+                    print(f'[driver_allw] {_e}')
+                    _send_line_punch(user_id, '申請失敗，請稍後再試。')
+            return
+        if pb_data == 'driver_allw_skip':
+            _send_line_punch(user_id, '好的，不申請。')
+            return
         state = _line_conv_state.get(user_id)
         if state:
             if state['flow'] == 'leave':
@@ -2739,11 +2774,12 @@ def _do_line_punch(staff, user_id, lat, lng, forced_type, PUNCH_LABEL):
         if recent:
             _send_line_punch(user_id, _lmsg('punch_duplicate', _lang(), label=label)); return
 
-        conn.execute("""
+        new_pr = conn.execute("""
             INSERT INTO punch_records
               (staff_id, punch_type, latitude, longitude, gps_distance, location_name)
-            VALUES (%s,%s,%s,%s,%s,%s)
-        """, (staff['id'], punch_type, lat, lng, gps_distance, matched_name))
+            VALUES (%s,%s,%s,%s,%s,%s) RETURNING id
+        """, (staff['id'], punch_type, lat, lng, gps_distance, matched_name)).fetchone()
+        new_punch_id = new_pr['id'] if new_pr else None
 
     now      = _dt3.now(TW)
     gps_info = f'\n📍 {matched_name} ({gps_distance}m)' if gps_distance is not None else ''
@@ -2755,7 +2791,7 @@ def _do_line_punch(staff, user_id, lat, lng, forced_type, PUNCH_LABEL):
     try:
         pay = _calc_today_pay(staff)
         if pay['has_in']:
-            lines = ['', '─────────────────', '💰 當日薪資預估']
+            lines = ['', '─────────────────', '當日薪資預估']
             if pay['hours_worked'] > 0:
                 lines.append(f'  工時：{pay["hours_worked"]}h')
             lines.append(f'  基本日薪：${int(pay["daily_pay"]):,}')
@@ -2771,6 +2807,27 @@ def _do_line_punch(staff, user_id, lat, lng, forced_type, PUNCH_LABEL):
             _send_line_punch(user_id, '\n'.join(lines))
     except Exception:
         pass
+
+    # 開車去/開車回打卡後詢問是否申請司機補貼
+    if punch_type in ('break_out', 'break_in') and new_punch_id:
+        try:
+            with get_db() as conn:
+                already = conn.execute(
+                    "SELECT id FROM driver_allowance_requests WHERE punch_id=%s",
+                    (new_punch_id,)
+                ).fetchone()
+            if not already:
+                lang = _lang()
+                direction_label = _lmsg('label_break_out', lang) if punch_type == 'break_out' else _lmsg('label_break_in', lang)
+                msg = _flex_ask('司機補貼申請', '#1A6B3C',
+                    f'剛完成「{direction_label}」打卡，要申請司機補貼 $125 嗎？', '審核通過後加入當月薪資')
+                msg['quickReply'] = _qr_pb(
+                    ('申請 $125', f'driver_allw_apply&punch_id={new_punch_id}', '申請司機補貼'),
+                    ('不用了', f'driver_allw_skip', '不申請'),
+                )
+                _push_line_msg(user_id, msg)
+        except Exception:
+            pass
 
 
 def _calc_today_pay(staff):
@@ -5384,6 +5441,24 @@ def init_salary_db():
         )""",
         "CREATE INDEX IF NOT EXISTS idx_salary_advances_staff ON salary_advances(staff_id)",
         "CREATE INDEX IF NOT EXISTS idx_salary_advances_month ON salary_advances(deduct_month, status)",
+        """CREATE TABLE IF NOT EXISTS driver_allowance_requests (
+            id          SERIAL PRIMARY KEY,
+            staff_id    INT REFERENCES punch_staff(id) ON DELETE CASCADE,
+            punch_id    INT REFERENCES punch_records(id) ON DELETE SET NULL,
+            direction   TEXT NOT NULL,
+            amount      NUMERIC(12,2) DEFAULT 125,
+            apply_date  DATE NOT NULL,
+            status      TEXT DEFAULT 'pending',
+            note        TEXT DEFAULT '',
+            review_note TEXT DEFAULT '',
+            reviewed_by TEXT DEFAULT '',
+            reviewed_at TIMESTAMPTZ,
+            created_at  TIMESTAMPTZ DEFAULT NOW(),
+            updated_at  TIMESTAMPTZ DEFAULT NOW(),
+            UNIQUE(punch_id)
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_driver_allw_staff  ON driver_allowance_requests(staff_id, status)",
+        "CREATE INDEX IF NOT EXISTS idx_driver_allw_date   ON driver_allowance_requests(apply_date, status)",
     ]
     for sql in migrations:
         try:
@@ -6068,6 +6143,31 @@ def _auto_generate_salary(conn, staff, month, work_days=None, batch_ctx=None):
         })
         deduction_total += adv_amt
 
+    # ── 司機補貼（申請核准） ─────────────────────────────────────
+    _ms_da, _me_da = _month_range(month)
+    if batch_ctx is not None:
+        drvr_rows = batch_ctx.get('driver_allowances', {}).get(staff['id'], [])
+    else:
+        drvr_rows = conn.execute("""
+            SELECT id, amount, apply_date, direction
+            FROM driver_allowance_requests
+            WHERE staff_id=%s AND status='approved'
+              AND apply_date >= %s::date AND apply_date < %s::date
+        """, (staff['id'], _ms_da, _me_da)).fetchall()
+        drvr_rows = [dict(r) for r in drvr_rows]
+    if drvr_rows:
+        _drvr_total = sum(float(r['amount']) for r in drvr_rows)
+        _drvr_cnt = len(drvr_rows)
+        items.append({
+            'id': 'driver_allowance_requests',
+            'name': '司機補貼',
+            'type': 'allowance',
+            'amount': round(_drvr_total, 2),
+            'formula': '',
+            'calc_note': f'{_drvr_cnt}筆 × $125',
+        })
+        allowance_total += _drvr_total
+
     net_pay = round(allowance_total - deduction_total, 2)
 
     return {
@@ -6315,16 +6415,28 @@ def api_salary_generate():
             for _ar in _adv_rows_b:
                 _advances_b.setdefault(_ar['staff_id'], []).append(dict(_ar))
 
+            # 9. 全員本月核准司機補貼
+            _drvr_rows_b = conn.execute("""
+                SELECT id, staff_id, amount, apply_date, direction
+                FROM driver_allowance_requests
+                WHERE staff_id = ANY(%s) AND status='approved'
+                  AND apply_date >= %s::date AND apply_date < %s::date
+            """, (staff_ids, _batch_ms, _batch_me)).fetchall()
+            _driver_allowances_b: dict = {}
+            for _dr in _drvr_rows_b:
+                _driver_allowances_b.setdefault(_dr['staff_id'], []).append(dict(_dr))
+
             batch_ctx = {
-                'shift_dates':     _shift_dates_b,
-                'holiday_dates':   _holiday_dates_b,
-                'ot_totals':       _ot_totals_b,
-                'ot_hours':        _ot_hours_b,
-                'leave_rows':      _leave_map_b,
-                'punch_dates':     _punch_dates_b,
-                'leave_date_sets': _leave_date_sets_b,
-                'salary_items':    _salary_items_b,
-                'advances':        _advances_b,
+                'shift_dates':      _shift_dates_b,
+                'holiday_dates':    _holiday_dates_b,
+                'ot_totals':        _ot_totals_b,
+                'ot_hours':         _ot_hours_b,
+                'leave_rows':       _leave_map_b,
+                'punch_dates':      _punch_dates_b,
+                'leave_date_sets':  _leave_date_sets_b,
+                'salary_items':     _salary_items_b,
+                'advances':         _advances_b,
+                'driver_allowances':_driver_allowances_b,
             }
 
             generated = 0
@@ -6563,6 +6675,180 @@ def api_salary_advance_delete(aid):
     with get_db() as conn:
         conn.execute("DELETE FROM salary_advances WHERE id=%s", (aid,))
     return jsonify({'deleted': aid})
+
+# ── Driver Allowance Requests ─────────────────────────────────────
+
+@app.route('/api/driver-allowance/my-eligible', methods=['GET'])
+def api_driver_allw_eligible():
+    sid = session.get('punch_staff_id')
+    if not sid:
+        return jsonify({'error': '請先登入'}), 401
+    with get_db() as conn:
+        rows = conn.execute("""
+            SELECT pr.id as punch_id, pr.punch_type, pr.punched_at,
+                   dar.id as req_id, dar.status
+            FROM punch_records pr
+            LEFT JOIN driver_allowance_requests dar ON dar.punch_id = pr.id
+            WHERE pr.staff_id = %s
+              AND pr.punch_type IN ('break_out', 'break_in')
+              AND pr.deleted_at IS NULL
+            ORDER BY pr.punched_at DESC
+            LIMIT 60
+        """, (sid,)).fetchall()
+    result = []
+    for r in rows:
+        pa = r['punched_at']
+        if hasattr(pa, 'astimezone'):
+            import datetime as _dti
+            pa = pa.astimezone(_dti.timezone(_dti.timedelta(hours=8)))
+        result.append({
+            'punch_id':   r['punch_id'],
+            'punch_type': r['punch_type'],
+            'punched_at': pa.strftime('%Y-%m-%d %H:%M') if hasattr(pa, 'strftime') else str(pa),
+            'apply_date': pa.strftime('%Y-%m-%d') if hasattr(pa, 'strftime') else str(pa)[:10],
+            'req_id':     r['req_id'],
+            'status':     r['status'],
+        })
+    return jsonify(result)
+
+
+@app.route('/api/driver-allowance/apply', methods=['POST'])
+def api_driver_allw_apply():
+    sid = session.get('punch_staff_id')
+    if not sid:
+        return jsonify({'error': '請先登入'}), 401
+    b = request.get_json(force=True)
+    punch_id = b.get('punch_id')
+    if not punch_id:
+        return jsonify({'error': '缺少打卡記錄'}), 400
+    with get_db() as conn:
+        pr = conn.execute(
+            "SELECT id, punch_type, punched_at FROM punch_records WHERE id=%s AND staff_id=%s AND deleted_at IS NULL",
+            (punch_id, sid)
+        ).fetchone()
+        if not pr:
+            return jsonify({'error': '找不到打卡記錄'}), 404
+        if pr['punch_type'] not in ('break_out', 'break_in'):
+            return jsonify({'error': '只有開車去/開車回打卡可申請'}), 400
+        existing = conn.execute(
+            "SELECT id FROM driver_allowance_requests WHERE punch_id=%s", (punch_id,)
+        ).fetchone()
+        if existing:
+            return jsonify({'error': '此打卡已申請過司機補貼'}), 409
+        import datetime as _dta
+        pa = pr['punched_at']
+        if hasattr(pa, 'astimezone'):
+            pa = pa.astimezone(_dta.timezone(_dta.timedelta(hours=8)))
+        apply_date = pa.date().isoformat() if hasattr(pa, 'date') else str(pa)[:10]
+        direction = 'out' if pr['punch_type'] == 'break_out' else 'in'
+        row = conn.execute("""
+            INSERT INTO driver_allowance_requests
+              (staff_id, punch_id, direction, amount, apply_date, status)
+            VALUES (%s,%s,%s,125,%s,'pending') RETURNING *
+        """, (sid, punch_id, direction, apply_date)).fetchone()
+    return jsonify({'id': row['id'], 'status': 'pending'}), 201
+
+
+@app.route('/api/driver-allowance/my-history', methods=['GET'])
+def api_driver_allw_my_history():
+    sid = session.get('punch_staff_id')
+    if not sid:
+        return jsonify({'error': '請先登入'}), 401
+    with get_db() as conn:
+        rows = conn.execute("""
+            SELECT dar.*, pr.punch_type, pr.punched_at
+            FROM driver_allowance_requests dar
+            LEFT JOIN punch_records pr ON pr.id = dar.punch_id
+            WHERE dar.staff_id=%s
+            ORDER BY dar.created_at DESC
+            LIMIT 60
+        """, (sid,)).fetchall()
+    result = []
+    for r in rows:
+        pa = r.get('punched_at')
+        if pa and hasattr(pa, 'astimezone'):
+            import datetime as _dtb
+            pa = pa.astimezone(_dtb.timezone(_dtb.timedelta(hours=8)))
+        result.append({
+            'id':          r['id'],
+            'apply_date':  r['apply_date'].isoformat() if hasattr(r['apply_date'], 'isoformat') else str(r['apply_date']),
+            'direction':   r['direction'],
+            'amount':      float(r['amount']),
+            'status':      r['status'],
+            'review_note': r['review_note'] or '',
+            'punched_at':  pa.strftime('%Y-%m-%d %H:%M') if pa and hasattr(pa, 'strftime') else '',
+            'created_at':  r['created_at'].strftime('%Y-%m-%d %H:%M') if hasattr(r['created_at'], 'strftime') else str(r['created_at']),
+        })
+    return jsonify(result)
+
+
+@app.route('/api/admin/driver-allowance', methods=['GET'])
+@require_admin
+def api_admin_driver_allw_list():
+    status_filter = request.args.get('status', 'pending')
+    with get_db() as conn:
+        rows = conn.execute("""
+            SELECT dar.*, ps.name as staff_name, ps.employee_code,
+                   pr.punch_type, pr.punched_at
+            FROM driver_allowance_requests dar
+            JOIN punch_staff ps ON ps.id = dar.staff_id
+            LEFT JOIN punch_records pr ON pr.id = dar.punch_id
+            WHERE (%s = 'all' OR dar.status = %s)
+            ORDER BY dar.created_at DESC
+            LIMIT 200
+        """, (status_filter, status_filter)).fetchall()
+    result = []
+    for r in rows:
+        pa = r.get('punched_at')
+        if pa and hasattr(pa, 'astimezone'):
+            import datetime as _dtc
+            pa = pa.astimezone(_dtc.timezone(_dtc.timedelta(hours=8)))
+        result.append({
+            'id':           r['id'],
+            'staff_id':     r['staff_id'],
+            'staff_name':   r['staff_name'],
+            'employee_code':r['employee_code'] or '',
+            'apply_date':   r['apply_date'].isoformat() if hasattr(r['apply_date'], 'isoformat') else str(r['apply_date']),
+            'direction':    r['direction'],
+            'amount':       float(r['amount']),
+            'status':       r['status'],
+            'review_note':  r['review_note'] or '',
+            'reviewed_by':  r['reviewed_by'] or '',
+            'reviewed_at':  r['reviewed_at'].strftime('%Y-%m-%d %H:%M') if r.get('reviewed_at') else '',
+            'punched_at':   pa.strftime('%Y-%m-%d %H:%M') if pa and hasattr(pa, 'strftime') else '',
+            'created_at':   r['created_at'].strftime('%Y-%m-%d %H:%M') if hasattr(r['created_at'], 'strftime') else str(r['created_at']),
+        })
+    return jsonify(result)
+
+
+@app.route('/api/admin/driver-allowance/<int:rid>/review', methods=['POST'])
+@require_admin
+def api_admin_driver_allw_review(rid):
+    b = request.get_json(force=True)
+    action = b.get('action')
+    review_note = b.get('review_note', '').strip()
+    reviewed_by = b.get('reviewed_by', '').strip()
+    if action not in ('approve', 'reject'):
+        return jsonify({'error': 'invalid action'}), 400
+    new_status = 'approved' if action == 'approve' else 'rejected'
+    with get_db() as conn:
+        row = conn.execute("""
+            UPDATE driver_allowance_requests
+            SET status=%s, review_note=%s, reviewed_by=%s, reviewed_at=NOW(), updated_at=NOW()
+            WHERE id=%s RETURNING *
+        """, (new_status, review_note, reviewed_by, rid)).fetchone()
+    if not row:
+        return ('', 404)
+    return jsonify({'id': row['id'], 'status': row['status']})
+
+
+@app.route('/api/admin/driver-allowance/<int:rid>', methods=['DELETE'])
+@require_admin
+def api_admin_driver_allw_delete(rid):
+    with get_db() as conn:
+        conn.execute("DELETE FROM driver_allowance_requests WHERE id=%s", (rid,))
+    return jsonify({'deleted': rid})
+
 
 # ── Salary Config (payroll day) ───────────────────────────────────
 
