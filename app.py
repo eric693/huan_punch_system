@@ -348,8 +348,8 @@ def init_db():
         "ALTER TABLE punch_staff ADD COLUMN IF NOT EXISTS bank_account TEXT DEFAULT ''",
         "ALTER TABLE punch_staff ADD COLUMN IF NOT EXISTS account_holder TEXT DEFAULT ''",
         "ALTER TABLE overtime_requests ADD COLUMN IF NOT EXISTS day_type TEXT DEFAULT 'weekday'",
-        "ALTER TABLE overtime_requests ALTER COLUMN start_time DROP NOT NULL",
-        "ALTER TABLE overtime_requests ALTER COLUMN end_time DROP NOT NULL",
+        "ALTER TABLE overtime_requests ALTER COLUMN IF EXISTS start_time DROP NOT NULL",
+        "ALTER TABLE overtime_requests ALTER COLUMN IF EXISTS end_time DROP NOT NULL",
         # 員工個人/保險欄位
         "ALTER TABLE punch_staff ADD COLUMN IF NOT EXISTS national_id TEXT DEFAULT ''",
         "ALTER TABLE punch_staff ADD COLUMN IF NOT EXISTS gender TEXT DEFAULT ''",
@@ -1624,6 +1624,13 @@ def api_punch_record_delete(rid):
               _json.dumps({'punch_type': old['punch_type'],
                            'punched_at': old['punched_at'].isoformat() if old['punched_at'] else None,
                            'note': old['note']})))
+        # 若該月薪資已確認，重設為草稿以反映打卡變動
+        if old['punched_at']:
+            _ym = old['punched_at'].strftime('%Y-%m')
+            conn.execute("""
+                UPDATE salary_records SET status='draft', updated_at=NOW()
+                WHERE staff_id=%s AND month=%s AND status='confirmed'
+            """, (old['staff_id'], _ym))
     return jsonify({'deleted': rid})
 
 @app.route('/api/punch/audit-log', methods=['GET'])
@@ -1931,6 +1938,11 @@ def api_punch_reqs_list():
 @login_required
 def api_punch_req_delete(rid):
     with get_db() as conn:
+        old = conn.execute("SELECT * FROM punch_requests WHERE id=%s", (rid,)).fetchone()
+        if not old:
+            return ('', 404)
+        if old['status'] == 'approved':
+            return jsonify({'error': '已核准的補打卡申請不可刪除'}), 409
         conn.execute("DELETE FROM punch_requests WHERE id=%s", (rid,))
     return jsonify({'deleted': rid})
 
@@ -4342,10 +4354,21 @@ def api_ot_review(rid):
             "SELECT name FROM punch_staff WHERE id=%s", (req['staff_id'],)
         ).fetchone()
 
+        # 加班核准後，若該月薪資已生成則重設為草稿
+        salary_reset = False
+        if new_status == 'approved' and pay_mode in ('cash', 'both') and ot_pay_final > 0:
+            ot_month = str(req['request_date'])[:7]
+            affected = conn.execute("""
+                UPDATE salary_records SET status='draft', updated_at=NOW()
+                WHERE staff_id=%s AND month=%s AND status IN ('confirmed','draft')
+            """, (req['staff_id'], ot_month)).rowcount
+            salary_reset = affected > 0
+
     result = ot_req_row(row)
     result['staff_name']     = sn['name'] if sn else ''
     result['comp_days']      = comp_days_granted
     result['pay_mode']       = pay_mode
+    result['salary_reset']   = salary_reset
     # LINE notification
     time_str = (f"{row['start_time']}～{row['end_time']}" if row.get('start_time') and row.get('end_time')
                 else f"{float(row['ot_hours'])} 小時")
@@ -4979,9 +5002,14 @@ def api_leave_request_review(rid):
                 reviewed_at=NOW(), updated_at=NOW()
             WHERE id=%s RETURNING *
         """, (new_status, reviewed_by, review_note, rid)).fetchone()
-        if action == 'approve':
+        # 只在狀態真正改變時才異動餘額，避免二次審核 double-count
+        old_status = old['status']
+        if old_status != 'approved' and new_status == 'approved':
             _update_leave_balance(conn, old['staff_id'], old['leave_type_id'],
                                   str(old['start_date'])[:4], float(old['total_days']))
+        elif old_status == 'approved' and new_status != 'approved':
+            _update_leave_balance(conn, old['staff_id'], old['leave_type_id'],
+                                  str(old['start_date'])[:4], -float(old['total_days']))
     if row:
         extra = f"{str(old['start_date'])} ~ {str(old['end_date'])} 共 {float(old['total_days'])} 天"
         if review_note: extra += f"\n審核意見：{review_note}"
@@ -4999,6 +5027,11 @@ def api_leave_request_delete(rid):
             _update_leave_balance(conn, old['staff_id'], old['leave_type_id'],
                                   str(old['start_date'])[:4], -float(old['total_days']))
         conn.execute("DELETE FROM leave_requests WHERE id=%s", (rid,))
+    _sys_audit('leave', 'delete_request', 'leave_request', rid,
+               old_data={'staff_id': old['staff_id'], 'leave_type_id': old['leave_type_id'],
+                         'start_date': str(old['start_date']), 'end_date': str(old['end_date']),
+                         'total_days': float(old['total_days']), 'status': old['status']},
+               note=f"刪除請假紀錄（原狀態：{old['status']}，{old['total_days']}天）")
     return jsonify({'deleted': rid})
 
 def _update_leave_balance(conn, staff_id, leave_type_id, year_str, delta_days):
@@ -5130,19 +5163,20 @@ def api_leave_submit():
         if total_days <= 0:
             return jsonify({'error': '請假天數不合理，請檢查日期'}), 400
 
-        # Check balance for types with limits
+        # Check balance for types with limits（優先用員工個人配額 total_days，備援用 max_days）
         lt = conn.execute("SELECT * FROM leave_types WHERE id=%s", (leave_type_id,)).fetchone()
         if lt and lt['max_days'] is not None:
             year = start_date[:4]
             bal  = conn.execute("""
-                SELECT COALESCE(used_days,0) as used
+                SELECT COALESCE(total_days,0) as quota, COALESCE(used_days,0) as used
                 FROM leave_balances
                 WHERE staff_id=%s AND leave_type_id=%s AND year=%s
             """, (sid, leave_type_id, year)).fetchone()
-            used = float(bal['used']) if bal else 0.0
-            if used + total_days > float(lt['max_days']):
-                remaining = float(lt['max_days']) - used
-                return jsonify({'error': f'{lt["name"]}剩餘 {remaining} 天，無法申請 {total_days} 天'}), 422
+            quota = float(bal['quota']) if bal and float(bal['quota']) > 0 else float(lt['max_days'])
+            used  = float(bal['used']) if bal else 0.0
+            if used + total_days > quota:
+                remaining = quota - used
+                return jsonify({'error': f'{lt["name"]}剩餘 {remaining:.1f} 天，無法申請 {total_days} 天'}), 422
 
         row = conn.execute("""
             INSERT INTO leave_requests
@@ -5449,6 +5483,11 @@ def init_salary_db():
         "ALTER TABLE punch_staff ADD COLUMN IF NOT EXISTS salary_item_overrides JSONB DEFAULT NULL",
         "ALTER TABLE salary_records ADD COLUMN IF NOT EXISTS income_tax_withheld NUMERIC(12,2) DEFAULT 0",
         "ALTER TABLE salary_records ADD COLUMN IF NOT EXISTS absent_days NUMERIC(5,1) DEFAULT 0",
+        "ALTER TABLE salary_records ADD COLUMN IF NOT EXISTS salary_type TEXT DEFAULT 'monthly'",
+        "ALTER TABLE salary_records ADD COLUMN IF NOT EXISTS hourly_rate NUMERIC(12,2) DEFAULT 0",
+        "ALTER TABLE salary_records ADD COLUMN IF NOT EXISTS hourly_base_pay NUMERIC(12,2) DEFAULT 0",
+        "ALTER TABLE salary_records ADD COLUMN IF NOT EXISTS actual_work_hours NUMERIC(7,2) DEFAULT 0",
+        "ALTER TABLE salary_records ADD COLUMN IF NOT EXISTS punch_details JSONB DEFAULT '[]'",
         """CREATE TABLE IF NOT EXISTS salary_records (
             id              SERIAL PRIMARY KEY,
             staff_id        INT REFERENCES punch_staff(id) ON DELETE CASCADE,
@@ -5568,11 +5607,17 @@ def salary_record_row(row):
     if not row: return None
     d = dict(row)
     for f in ['base_salary','insured_salary','work_days','actual_days','leave_days',
-              'unpaid_days','absent_days','ot_pay','allowance_total','deduction_total','net_pay']:
+              'unpaid_days','absent_days','ot_pay','allowance_total','deduction_total','net_pay',
+              'hourly_rate','hourly_base_pay','actual_work_hours']:
         if d.get(f) is not None: d[f] = float(d[f])
     if isinstance(d.get('items'), str):
         try: d['items'] = _json.loads(d['items'])
         except: d['items'] = []
+    if isinstance(d.get('punch_details'), str):
+        try: d['punch_details'] = _json.loads(d['punch_details'])
+        except: d['punch_details'] = []
+    if d.get('punch_details') is None:
+        d['punch_details'] = []
     if d.get('confirmed_at'): d['confirmed_at'] = d['confirmed_at'].isoformat()
     if d.get('created_at'):   d['created_at']   = d['created_at'].isoformat()
     if d.get('updated_at'):   d['updated_at']   = d['updated_at'].isoformat()
@@ -5930,8 +5975,9 @@ def _auto_generate_salary(conn, staff, month, work_days=None, batch_ctx=None):
         allowance_total += hourly_base_pay
 
         # 時薪制加班費（從打卡估算，僅在無核准申請時使用）
-        # 此路徑下 hourly_base_pay 已包含所有打卡工時的基本時薪，
-        # 故估算值只加「超時加給倍率 - 1」的差額部分，避免重複計算。
+        # hourly_base_pay 已含所有打卡工時的基本時薪，
+        # 故只補「倍率 - 1」的差額，數學上等同 _calc_ot_pay 的平日計算。
+        # 注意：此估算只套用平日倍率；假日/休息日加班必須透過加班申請審核才能取得正確費率。
         if ot_pay == 0 and actual_work_hours > 0:
             for pd in punch_details:
                 overtime_h = max(0.0, pd['net_hours'] - daily_hours)
@@ -6095,29 +6141,54 @@ def _auto_generate_salary(conn, staff, month, work_days=None, batch_ctx=None):
         })
         allowance_total += ot_pay
 
-    # ── 請假扣款 ────────────────────────────────────────────
-    if unpaid_days > 0 and daily_wage > 0:
-        leave_names = '、'.join(set(
-            r['leave_name'] for r in leave_rows if float(r['pay_rate']) == 0
-        ))
-        deduct = round(daily_wage * unpaid_days, 2)
-        items.append({
-            'id': 'unpaid', 'name': f'無薪假扣款（{leave_names}）', 'type': 'deduction',
-            'amount': deduct, 'formula': '',
-            'calc_note': f'{unpaid_days}天 × 日薪${round(daily_wage, 0)}',
-        })
-        deduction_total += deduct
-
-    for (_hdays, _hrate, _hname) in _half_entries:
-        if _hdays > 0 and daily_wage > 0:
-            _dr = round(1 - _hrate, 4)
-            deduct = round(daily_wage * _hdays * _dr, 2)
+    # ── 請假扣款（月薪制） / 請假薪資補加（日薪制、時薪制）─────────────
+    # 月薪制：底薪固定，請假才扣；日薪/時薪制：底薪按打卡計算，請假日沒打卡即無薪，
+    # 有薪假應補加薪資而非扣款（否則會雙重扣）。
+    if salary_type == 'monthly':
+        if unpaid_days > 0 and daily_wage > 0:
+            leave_names = '、'.join(set(
+                r['leave_name'] for r in leave_rows if float(r['pay_rate']) == 0
+            ))
+            deduct = round(daily_wage * unpaid_days, 2)
             items.append({
-                'id': f'halfpay_{_hname}', 'name': f'部分薪假扣款（{_hname}）', 'type': 'deduction',
+                'id': 'unpaid', 'name': f'無薪假扣款（{leave_names}）', 'type': 'deduction',
                 'amount': deduct, 'formula': '',
-                'calc_note': f'{_hdays}天 × 日薪${round(daily_wage, 0)} × {_dr}',
+                'calc_note': f'{unpaid_days}天 × 日薪${round(daily_wage, 0)}',
             })
             deduction_total += deduct
+
+        for (_hdays, _hrate, _hname) in _half_entries:
+            if _hdays > 0 and daily_wage > 0:
+                _dr = round(1 - _hrate, 4)
+                deduct = round(daily_wage * _hdays * _dr, 2)
+                items.append({
+                    'id': f'halfpay_{_hname}', 'name': f'部分薪假扣款（{_hname}）', 'type': 'deduction',
+                    'amount': deduct, 'formula': '',
+                    'calc_note': f'{_hdays}天 × 日薪${round(daily_wage, 0)} × {_dr}',
+                })
+                deduction_total += deduct
+    else:
+        # 日薪制 / 時薪制：有薪假補加，無薪假不扣（底薪已按打卡天數/工時計算，請假日本無薪）
+        _full_leave_days = leave_days - unpaid_days - sum(d for d, _, _ in _half_entries)
+        if _full_leave_days > 0 and daily_wage > 0:
+            _full_add = round(daily_wage * _full_leave_days, 2)
+            items.append({
+                'id': 'fullpay_leave', 'name': '全薪假薪資', 'type': 'allowance',
+                'amount': _full_add, 'formula': '',
+                'calc_note': f'{round(_full_leave_days, 2)}天 × 日薪${round(daily_wage, 0)}',
+            })
+            allowance_total += _full_add
+
+        for (_hdays, _hrate, _hname) in _half_entries:
+            if _hdays > 0 and daily_wage > 0:
+                _half_add = round(daily_wage * _hdays * _hrate, 2)
+                items.append({
+                    'id': f'halfpay_{_hname}', 'name': f'半薪假薪資（{_hname}）', 'type': 'allowance',
+                    'amount': _half_add, 'formula': '',
+                    'calc_note': f'{_hdays}天 × 日薪${round(daily_wage, 0)} × {_hrate}',
+                })
+                allowance_total += _half_add
+        # 無薪假：不扣（底薪已無那幾天的打卡計薪）
 
     # ── 月薪制：缺勤扣款（打卡記錄核查） ─────────────────────
     absent_days = 0
@@ -6148,11 +6219,14 @@ def _auto_generate_salary(conn, staff, month, work_days=None, batch_ctx=None):
                 while _ld <= _le:
                     leave_date_set.add(_ld.isoformat() if hasattr(_ld, 'isoformat') else str(_ld))
                     _ld += _td5(days=1)
-        # 缺勤 = 排班但未打卡且非假日，僅計算過去日期
+        # 缺勤 = 排班但未打卡且非假日，截止到今天與月底的較小值
+        _sal_s2, _sal_e2 = _month_range(month)
+        _month_last = _d5.fromisoformat(_sal_e2) - _td5(days=1)
+        _absent_cutoff = min(_today5, _month_last)
         absent_date_list = sorted(
             ds for ds in scheduled_dates
             if ds not in punched_dates and ds not in leave_date_set
-               and _d5.fromisoformat(ds) < _today5
+               and _d5.fromisoformat(ds) <= _absent_cutoff
         )
         absent_days = len(absent_date_list)
         if absent_days > 0:
@@ -6507,26 +6581,35 @@ def api_salary_generate():
             for staff in staff_list:
                 data = _auto_generate_salary(conn, dict(staff), month, batch_ctx=batch_ctx)
                 items_json = _json.dumps(data['items'], ensure_ascii=False)
+                punch_details_json = _json.dumps(data.get('punch_details', []), ensure_ascii=False)
                 conn.execute("""
                     INSERT INTO salary_records
-                      (staff_id, month, base_salary, insured_salary, work_days, actual_days,
+                      (staff_id, month, salary_type, base_salary, hourly_rate, hourly_base_pay,
+                       actual_work_hours, insured_salary, work_days, actual_days,
                        leave_days, unpaid_days, absent_days, ot_pay, allowance_total, deduction_total,
-                       net_pay, items, status, updated_at)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,'draft',NOW())
+                       net_pay, items, punch_details, status, updated_at)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,'draft',NOW())
                     ON CONFLICT (staff_id, month) DO UPDATE
-                      SET base_salary=%s, insured_salary=%s, work_days=%s, actual_days=%s,
+                      SET salary_type=%s, base_salary=%s, hourly_rate=%s, hourly_base_pay=%s,
+                          actual_work_hours=%s, insured_salary=%s, work_days=%s, actual_days=%s,
                           leave_days=%s, unpaid_days=%s, absent_days=%s, ot_pay=%s, allowance_total=%s,
-                          deduction_total=%s, net_pay=%s, items=%s::jsonb,
+                          deduction_total=%s, net_pay=%s, items=%s::jsonb, punch_details=%s::jsonb,
                           status=CASE WHEN salary_records.status='confirmed' THEN 'confirmed' ELSE 'draft' END,
                           updated_at=NOW()
                 """, (
-                    data['staff_id'], month, data['base_salary'], data['insured_salary'],
-                    data['work_days'], data['actual_days'], data['leave_days'], data['unpaid_days'],
-                    data['absent_days'], data['ot_pay'], data['allowance_total'], data['deduction_total'],
-                    data['net_pay'], items_json,
-                    data['base_salary'], data['insured_salary'], data['work_days'], data['actual_days'],
+                    data['staff_id'], month, data['salary_type'], data['base_salary'],
+                    data['hourly_rate'], data['hourly_base_pay'], data['actual_work_hours'],
+                    data['insured_salary'], data['work_days'], data['actual_days'],
                     data['leave_days'], data['unpaid_days'], data['absent_days'], data['ot_pay'],
-                    data['allowance_total'], data['deduction_total'], data['net_pay'], items_json,
+                    data['allowance_total'], data['deduction_total'], data['net_pay'],
+                    items_json, punch_details_json,
+                    # ON CONFLICT SET values
+                    data['salary_type'], data['base_salary'], data['hourly_rate'],
+                    data['hourly_base_pay'], data['actual_work_hours'],
+                    data['insured_salary'], data['work_days'], data['actual_days'],
+                    data['leave_days'], data['unpaid_days'], data['absent_days'], data['ot_pay'],
+                    data['allowance_total'], data['deduction_total'], data['net_pay'],
+                    items_json, punch_details_json,
                 ))
                 generated += 1
         finally:
@@ -6559,7 +6642,9 @@ def api_salary_record_update(rid):
     b = request.get_json(force=True)
     items_json = _json.dumps(b.get('items', []), ensure_ascii=False)
     with get_db() as conn:
-        old = conn.execute("SELECT net_pay, allowance_total, deduction_total FROM salary_records WHERE id=%s", (rid,)).fetchone()
+        old = conn.execute("SELECT status, net_pay, allowance_total, deduction_total FROM salary_records WHERE id=%s", (rid,)).fetchone()
+        if old and old['status'] == 'confirmed':
+            return jsonify({'error': '已確認的薪資記錄無法修改，請先取消確認'}), 403
         row = conn.execute("""
             UPDATE salary_records SET
               allowance_total=%s, deduction_total=%s, net_pay=%s,
@@ -6903,9 +6988,17 @@ def api_admin_driver_allw_review(rid):
             SET status=%s, review_note=%s, reviewed_by=%s, reviewed_at=NOW(), updated_at=NOW()
             WHERE id=%s RETURNING *
         """, (new_status, review_note, reviewed_by, rid)).fetchone()
-    if not row:
-        return ('', 404)
-    return jsonify({'id': row['id'], 'status': row['status']})
+        if not row:
+            return ('', 404)
+        salary_reset = False
+        if new_status == 'approved':
+            apply_month = str(row['apply_date'])[:7]  # e.g. '2026-05'
+            affected = conn.execute("""
+                UPDATE salary_records SET status='draft', updated_at=NOW()
+                WHERE staff_id=%s AND month=%s AND status IN ('confirmed','draft')
+            """, (row['staff_id'], apply_month)).rowcount
+            salary_reset = affected > 0
+    return jsonify({'id': row['id'], 'status': row['status'], 'salary_reset': salary_reset})
 
 
 @app.route('/api/admin/driver-allowance/<int:rid>', methods=['DELETE'])
@@ -8800,14 +8893,14 @@ if __name__ == '__main__':
 # ═══════════════════════════════════════════════════════════════════
 
 @app.route('/api/salary/records/<int:rid>/pdf', methods=['GET'])
-@require_module('salary')
 def api_salary_pdf(rid):
-    """回傳薪資單 HTML（供瀏覽器列印/另存 PDF）"""
-    # 允許員工查看自己的薪資單
-    if not session.get('logged_in'):
-        sid = session.get('punch_staff_id')
-        if not sid:
-            return '未登入', 401
+    """回傳薪資單 HTML（供瀏覽器列印/另存 PDF）
+    管理員可查所有薪資單；員工只能查看自己的。
+    """
+    is_admin = session.get('logged_in')
+    emp_sid  = session.get('punch_staff_id')
+    if not is_admin and not emp_sid:
+        return '未登入', 401
     with get_db() as conn:
         row = conn.execute("""
             SELECT sr.*, ps.name as staff_name, ps.employee_code,
@@ -8819,10 +8912,9 @@ def api_salary_pdf(rid):
         """, (rid,)).fetchone()
     if not row:
         return '找不到薪資記錄', 404
-    # 員工只能看自己的
-    if not session.get('logged_in'):
-        if row['staff_id'] != session.get('punch_staff_id'):
-            return '無權限', 403
+    # 員工只能看自己的薪資單
+    if not is_admin and row['staff_id'] != emp_sid:
+        return '無權限', 403
 
     d         = salary_record_row(row)
     items     = d.get('items') or []
@@ -13959,20 +14051,27 @@ def api_export_leave_balances_excel():
     year = request.args.get('year', '') or str(_dt.now(TW_TZ).year)
     with get_db() as conn:
         rows = conn.execute("""
-            SELECT lb.*, ps.name as staff_name, ps.employee_code, ps.department,
-                   lt.name as leave_type_name, lt.code as leave_code
+            SELECT lb.total_days, lb.used_days, lb.note,
+                   ps.name as staff_name, ps.employee_code, ps.department,
+                   lt.name as leave_type_name, lt.code as leave_code,
+                   COALESCE((
+                       SELECT SUM(lr.total_days) FROM leave_requests lr
+                       WHERE lr.staff_id=lb.staff_id AND lr.leave_type_id=lb.leave_type_id
+                         AND lr.status='pending'
+                         AND EXTRACT(YEAR FROM lr.start_date)=%s
+                   ), 0) AS pending_days
             FROM leave_balances lb
             JOIN punch_staff ps ON ps.id=lb.staff_id
             JOIN leave_types  lt ON lt.id=lb.leave_type_id
             WHERE lb.year=%s ORDER BY ps.name, lt.name
-        """, (int(year),)).fetchall()
+        """, (int(year), int(year))).fetchall()
     wb = openpyxl.Workbook(); ws = wb.active; ws.title = f'{year} 假別餘額'
     headers = ['員工代碼','姓名','部門','假別','假別代碼','年度','配額(天)','已使用(天)','待審(天)','剩餘(天)']
     col_w   = [10,10,10,12,10,8,10,12,10,10]
     _xl_write_header(ws, headers, col_w)
     data = []
     for r in rows:
-        quota   = float(r['quota_days']  or 0)
+        quota   = float(r['total_days']  or 0)
         used    = float(r['used_days']   or 0)
         pending = float(r['pending_days'] or 0)
         remain  = quota - used - pending
@@ -14270,6 +14369,398 @@ def api_export_stores_excel():
         ])
     _xl_write_rows(ws, data)
     return _xl_response(wb, 'stores.xlsx')
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PDF 匯出 — 通用報表
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.route('/api/export/attendance-pdf', methods=['GET'])
+@login_required
+def api_export_attendance_pdf():
+    month    = request.args.get('month', '') or _dt.now(TW_TZ).strftime('%Y-%m')
+    staff_id = request.args.get('staff_id', '')
+    conds, params = ["TO_CHAR(pr.punched_at AT TIME ZONE 'Asia/Taipei','YYYY-MM')=%s"], [month]
+    if staff_id: conds.append("pr.staff_id=%s"); params.append(int(staff_id))
+    with get_db() as conn:
+        rows = conn.execute(f"""
+            SELECT ps.employee_code, ps.name as staff_name, ps.department, ps.role,
+                   (pr.punched_at AT TIME ZONE 'Asia/Taipei')::date as work_date,
+                   pr.punch_type,
+                   to_char(pr.punched_at AT TIME ZONE 'Asia/Taipei','HH24:MI') as punch_time,
+                   pr.is_manual, pr.gps_distance, pr.location_name, pr.note
+            FROM punch_records pr JOIN punch_staff ps ON ps.id=pr.staff_id
+            WHERE {' AND '.join(conds)} ORDER BY ps.name, pr.punched_at
+        """, params).fetchall()
+    PUNCH_LABEL = {'in':'上班','out':'下班','break_out':'休息開始','break_in':'休息結束'}
+    headers = ['員工代碼','姓名','部門','職稱','日期','打卡類型','時間','補打','GPS(m)','地點','備註']
+    col_w   = [14, 14, 12, 12, 16, 12, 10, 8, 12, 16, 20]
+    data = []
+    for r in rows:
+        data.append([
+            r['employee_code'] or '', r['staff_name'], r['department'] or '', r['role'] or '',
+            str(r['work_date']), PUNCH_LABEL.get(r['punch_type'], r['punch_type']),
+            r['punch_time'], '是' if r['is_manual'] else '',
+            r['gps_distance'] if r['gps_distance'] is not None else '',
+            r['location_name'] or '', r['note'] or '',
+        ])
+    pdf = _build_table_pdf(f'{month} 出勤明細', headers, data, col_w, landscape=True)
+    return _make_pdf_response(pdf, f'attendance_{month}.pdf')
+
+
+@app.route('/api/export/attendance-summary-pdf', methods=['GET'])
+@login_required
+def api_export_attendance_summary_pdf():
+    month = request.args.get('month', '') or _dt.now(TW_TZ).strftime('%Y-%m')
+    with get_db() as conn:
+        rows = conn.execute("""
+            SELECT ps.employee_code, ps.name as staff_name, ps.department, ps.role,
+                   (pr.punched_at AT TIME ZONE 'Asia/Taipei')::date as work_date,
+                   MIN(CASE WHEN pr.punch_type='in'  THEN pr.punched_at AT TIME ZONE 'Asia/Taipei' END) as clock_in,
+                   MAX(CASE WHEN pr.punch_type='out' THEN pr.punched_at AT TIME ZONE 'Asia/Taipei' END) as clock_out,
+                   BOOL_OR(pr.punch_type='in')  as has_in,
+                   BOOL_OR(pr.punch_type='out') as has_out
+            FROM punch_records pr JOIN punch_staff ps ON ps.id=pr.staff_id
+            WHERE TO_CHAR(pr.punched_at AT TIME ZONE 'Asia/Taipei','YYYY-MM')=%s
+            GROUP BY ps.employee_code, ps.name, ps.department, ps.role,
+                     (pr.punched_at AT TIME ZONE 'Asia/Taipei')::date
+            ORDER BY ps.name, work_date
+        """, (month,)).fetchall()
+    headers = ['員工代碼','姓名','部門','職稱','日期','上班時間','下班時間','工時(h)','狀態']
+    col_w   = [14, 14, 12, 12, 16, 12, 12, 10, 12]
+    data = []
+    for r in rows:
+        ci = str(r['clock_in'])[11:16]  if r['clock_in']  else '—'
+        co = str(r['clock_out'])[11:16] if r['clock_out'] else '—'
+        hrs = ''
+        if r['clock_in'] and r['clock_out']:
+            hrs = round((r['clock_out'] - r['clock_in']).total_seconds() / 3600, 2)
+        status = '正常' if r['has_in'] and r['has_out'] else ('缺下班' if r['has_in'] else ('缺上班' if r['has_out'] else '缺打卡'))
+        data.append([r['employee_code'] or '', r['staff_name'], r['department'] or '', r['role'] or '',
+                     str(r['work_date']), ci, co, hrs, status])
+    pdf = _build_table_pdf(f'{month} 出勤摘要', headers, data, col_w, landscape=True)
+    return _make_pdf_response(pdf, f'attendance_summary_{month}.pdf')
+
+
+@app.route('/api/export/monthly-stats-pdf', methods=['GET'])
+@login_required
+def api_export_monthly_stats_pdf():
+    from datetime import date as _date3, timedelta as _td3
+    import calendar as _cal3
+    month = request.args.get('month', '') or _dt.now(TW_TZ).strftime('%Y-%m')
+    _y3, _m3 = int(month[:4]), int(month[5:])
+    _next_d = (_date3(_y3, _m3, _cal3.monthrange(_y3, _m3)[1]) + _td3(days=1)).isoformat()
+    with get_db() as conn:
+        rows = conn.execute("""
+            SELECT ps.id as staff_id, ps.name as staff_name, ps.department, ps.role,
+                   (pr.punched_at AT TIME ZONE 'Asia/Taipei')::date as work_date,
+                   MIN(CASE WHEN pr.punch_type='in'  THEN pr.punched_at AT TIME ZONE 'Asia/Taipei' END) as clock_in,
+                   MAX(CASE WHEN pr.punch_type='out' THEN pr.punched_at AT TIME ZONE 'Asia/Taipei' END) as clock_out,
+                   BOOL_OR(pr.punch_type='in')  as has_in,
+                   BOOL_OR(pr.punch_type='out') as has_out
+            FROM punch_records pr JOIN punch_staff ps ON ps.id=pr.staff_id AND ps.active=TRUE
+            WHERE TO_CHAR(pr.punched_at AT TIME ZONE 'Asia/Taipei','YYYY-MM')=%s
+               OR (pr.punched_at AT TIME ZONE 'Asia/Taipei')::date=%s
+            GROUP BY ps.id, ps.name, ps.department, ps.role,
+                     (pr.punched_at AT TIME ZONE 'Asia/Taipei')::date
+            ORDER BY ps.name, work_date
+        """, (month, _next_d)).fetchall()
+        shift_rows = conn.execute("""
+            SELECT sa.staff_id, sa.shift_date, st.start_time, st.end_time
+            FROM shift_assignments sa JOIN shift_types st ON st.id=sa.shift_type_id
+            WHERE TO_CHAR(sa.shift_date,'YYYY-MM')=%s
+        """, (month,)).fetchall()
+    from datetime import date as _da
+    shift_map = {(r['staff_id'], str(r['shift_date'])): r for r in shift_rows}
+    stats = {}
+    for r in rows:
+        sid = r['staff_id']; ds = str(r['work_date'])
+        if sid not in stats:
+            stats[sid] = {'name': r['staff_name'], 'dept': r['department'] or '', 'role': r['role'] or '',
+                          'days': 0, 'hours': 0.0, 'late': 0, 'early': 0, 'missing': 0}
+        s = stats[sid]
+        if r['has_in'] and r['has_out']:
+            s['days'] += 1
+            s['hours'] = round(s['hours'] + (r['clock_out'] - r['clock_in']).total_seconds() / 3600, 2)
+        if not r['has_in'] or not r['has_out']:
+            if _da.fromisoformat(ds) < _da.today(): s['missing'] += 1
+        sh = shift_map.get((sid, ds))
+        if sh and r['clock_in']:
+            ci_t = str(r['clock_in'])[11:16]; sh_s = str(sh['start_time'])[:5]
+            try:
+                if int(ci_t[:2])*60+int(ci_t[3:]) - (int(sh_s[:2])*60+int(sh_s[3:])) > 10: s['late'] += 1
+            except: pass
+        if sh and r['clock_out']:
+            co_t = str(r['clock_out'])[11:16]; sh_e = str(sh['end_time'])[:5]
+            try:
+                if (int(sh_e[:2])*60+int(sh_e[3:])) - (int(co_t[:2])*60+int(co_t[3:])) > 15: s['early'] += 1
+            except: pass
+    headers = ['姓名','部門','職稱','出勤天數','總工時(h)','平均時數/天','遲到次數','早退次數','缺打卡次數']
+    col_w   = [16, 14, 14, 12, 12, 14, 12, 12, 12]
+    data = []
+    for s in stats.values():
+        avg = round(s['hours'] / s['days'], 2) if s['days'] else 0
+        data.append([s['name'], s['dept'], s['role'], s['days'], round(s['hours'],2), avg, s['late'], s['early'], s['missing']])
+    pdf = _build_table_pdf(f'{month} 月出勤統計', headers, data, col_w, landscape=True)
+    return _make_pdf_response(pdf, f'monthly_stats_{month}.pdf')
+
+
+@app.route('/api/export/staff-pdf', methods=['GET'])
+@login_required
+def api_export_staff_pdf():
+    include_inactive = request.args.get('include_inactive', '0') == '1'
+    with get_db() as conn:
+        cond = '' if include_inactive else 'WHERE ps.active=TRUE'
+        rows = conn.execute(f"""
+            SELECT ps.employee_code, ps.name, ps.department, ps.position_title, ps.role,
+                   ps.hire_date, ps.salary_type, ps.base_salary, ps.daily_hours,
+                   ps.gender, ps.national_id, ps.insurance_type, ps.active,
+                   s.name as store_name
+            FROM punch_staff ps
+            LEFT JOIN stores s ON s.id=ps.store_id
+            {cond} ORDER BY ps.name
+        """).fetchall()
+    SAL_LABEL = {'monthly':'月薪制','hourly':'時薪制','daily':'日薪制'}
+    headers = ['員工代碼','姓名','部門','職稱','到職日','薪資制度','底薪','每日時數','性別','身分證','保險','門市','狀態']
+    col_w   = [14, 14, 12, 12, 16, 12, 12, 10, 8, 16, 10, 12, 8]
+    data = []
+    for r in rows:
+        data.append([
+            r['employee_code'] or '', r['name'], r['department'] or '',
+            r['position_title'] or r['role'] or '',
+            str(r['hire_date']) if r['hire_date'] else '',
+            SAL_LABEL.get(r['salary_type'] or 'monthly', r['salary_type'] or ''),
+            float(r['base_salary'] or 0), float(r['daily_hours'] or 8),
+            r['gender'] or '', r['national_id'] or '',
+            r['insurance_type'] or '', r['store_name'] or '',
+            '在職' if r['active'] else '離職',
+        ])
+    pdf = _build_table_pdf('員工列表', headers, data, col_w, landscape=True)
+    return _make_pdf_response(pdf, 'staff_list.pdf')
+
+
+@app.route('/api/export/overtime-pdf', methods=['GET'])
+@login_required
+def api_export_overtime_pdf():
+    month  = request.args.get('month', '') or _dt.now(TW_TZ).strftime('%Y-%m')
+    status = request.args.get('status', '')
+    conds, params = ["to_char(r.request_date,'YYYY-MM')=%s"], [month]
+    if status: conds.append("r.status=%s"); params.append(status)
+    with get_db() as conn:
+        rows = conn.execute(f"""
+            SELECT r.*, ps.name as staff_name, ps.department, ps.employee_code
+            FROM overtime_requests r JOIN punch_staff ps ON ps.id=r.staff_id
+            WHERE {' AND '.join(conds)} ORDER BY r.request_date DESC
+        """, params).fetchall()
+    STATUS_LABEL = {'pending':'待審核','approved':'已核准','rejected':'已退回'}
+    DAY_LABEL    = {'weekday':'平日','rest_day':'休息日','holiday':'國定假日','special':'特殊假日'}
+    headers = ['員工代碼','姓名','部門','申請日期','日別','開始','結束','時數','加班費','狀態','審核人']
+    col_w   = [14, 14, 12, 16, 12, 10, 10, 10, 12, 12, 14]
+    data = []
+    for r in rows:
+        data.append([
+            r['employee_code'] or '', r['staff_name'], r['department'] or '',
+            str(r['request_date']), DAY_LABEL.get(r['day_type'] or 'weekday', r['day_type'] or ''),
+            str(r['start_time'])[:5] if r['start_time'] else '',
+            str(r['end_time'])[:5]   if r['end_time']   else '',
+            float(r['ot_hours'] or 0), float(r['ot_pay'] or 0),
+            STATUS_LABEL.get(r['status'], r['status']),
+            r['reviewed_by'] or '',
+        ])
+    pdf = _build_table_pdf(f'{month} 加班申請', headers, data, col_w, landscape=True)
+    return _make_pdf_response(pdf, f'overtime_{month}.pdf')
+
+
+@app.route('/api/export/punch-requests-pdf', methods=['GET'])
+@login_required
+def api_export_punch_requests_pdf():
+    month  = request.args.get('month', '') or _dt.now(TW_TZ).strftime('%Y-%m')
+    status = request.args.get('status', '')
+    conds, params = ["TO_CHAR(r.requested_at AT TIME ZONE 'Asia/Taipei','YYYY-MM')=%s"], [month]
+    if status: conds.append("r.status=%s"); params.append(status)
+    with get_db() as conn:
+        rows = conn.execute(f"""
+            SELECT r.*, ps.name as staff_name, ps.department, ps.employee_code
+            FROM punch_requests r JOIN punch_staff ps ON ps.id=r.staff_id
+            WHERE {' AND '.join(conds)} ORDER BY r.requested_at DESC
+        """, params).fetchall()
+    PUNCH_LABEL  = {'in':'上班打卡','out':'下班打卡','break_out':'休息開始','break_in':'休息結束'}
+    STATUS_LABEL = {'pending':'待審核','approved':'已核准','rejected':'已退回'}
+    headers = ['員工代碼','姓名','部門','打卡類型','申請時間','原因','狀態','審核人']
+    col_w   = [14, 14, 12, 12, 18, 30, 12, 14]
+    data = []
+    for r in rows:
+        data.append([
+            r['employee_code'] or '', r['staff_name'], r['department'] or '',
+            PUNCH_LABEL.get(r['punch_type'], r['punch_type']),
+            str(r['requested_at'].astimezone(TW_TZ))[:16] if hasattr(r['requested_at'], 'astimezone') else str(r['requested_at'])[:16],
+            r['reason'] or '', STATUS_LABEL.get(r['status'], r['status']),
+            r['reviewed_by'] or '',
+        ])
+    pdf = _build_table_pdf(f'{month} 補打申請', headers, data, col_w, landscape=True)
+    return _make_pdf_response(pdf, f'punch_requests_{month}.pdf')
+
+
+@app.route('/api/export/schedule-requests-pdf', methods=['GET'])
+@login_required
+def api_export_schedule_requests_pdf():
+    month  = request.args.get('month', '') or _dt.now(TW_TZ).strftime('%Y-%m')
+    status = request.args.get('status', '')
+    conds, params = ['r.month=%s'], [month]
+    if status: conds.append("r.status=%s"); params.append(status)
+    with get_db() as conn:
+        rows = conn.execute(f"""
+            SELECT r.*, ps.name as staff_name, ps.department, ps.employee_code
+            FROM schedule_requests r JOIN punch_staff ps ON ps.id=r.staff_id
+            WHERE {' AND '.join(conds)} ORDER BY r.created_at DESC
+        """, params).fetchall()
+    STATUS_LABEL = {'pending':'待審核','approved':'已核准','rejected':'已退回','modified_pending':'修改待審'}
+    headers = ['員工代碼','姓名','部門','月份','申請天數','休假日期','狀態','審核人']
+    col_w   = [14, 14, 12, 12, 10, 50, 12, 14]
+    data = []
+    for r in rows:
+        import json as _jx
+        dates_raw = r['dates'] if isinstance(r['dates'], list) else _jx.loads(r['dates'] or '[]')
+        dates_str = ', '.join(sorted(dates_raw))
+        data.append([
+            r['employee_code'] or '', r['staff_name'], r['department'] or '',
+            r['month'], len(dates_raw), dates_str,
+            STATUS_LABEL.get(r['status'], r['status']),
+            r['reviewed_by'] or '',
+        ])
+    pdf = _build_table_pdf(f'{month} 排休申請', headers, data, col_w, landscape=True)
+    return _make_pdf_response(pdf, f'schedule_requests_{month}.pdf')
+
+
+@app.route('/api/export/leave-pdf', methods=['GET'])
+@login_required
+def api_export_leave_pdf():
+    month    = request.args.get('month', '')
+    year     = request.args.get('year', '')
+    staff_id = request.args.get('staff_id', '')
+    status   = request.args.get('status', '')
+    conds, params = ['TRUE'], []
+    if month:    conds.append("to_char(lr.start_date,'YYYY-MM')=%s"); params.append(month)
+    if year:     conds.append("EXTRACT(YEAR FROM lr.start_date)=%s"); params.append(int(year))
+    if staff_id: conds.append("lr.staff_id=%s"); params.append(int(staff_id))
+    if status:   conds.append("lr.status=%s"); params.append(status)
+    with get_db() as conn:
+        rows = conn.execute(f"""
+            SELECT lr.*, ps.name as staff_name, ps.employee_code, ps.department,
+                   lt.name as leave_type_name, lt.pay_rate
+            FROM leave_requests lr
+            JOIN punch_staff ps ON ps.id=lr.staff_id
+            JOIN leave_types  lt ON lt.id=lr.leave_type_id
+            WHERE {' AND '.join(conds)} ORDER BY lr.start_date, ps.name
+        """, params).fetchall()
+    STATUS_LABEL = {'approved':'已核准','rejected':'已退回','pending':'待審核','cancelled':'已取消'}
+    PAY_LABEL    = {1.0:'全薪', 0.5:'半薪', 0.0:'無薪'}
+    headers = ['員工代碼','姓名','部門','假別','薪資倍率','開始日期','結束日期','天數','狀態','審核人']
+    col_w   = [14, 14, 12, 14, 10, 16, 16, 8, 12, 14]
+    data = []
+    for r in rows:
+        data.append([
+            r['employee_code'] or '', r['staff_name'], r['department'] or '',
+            r['leave_type_name'], PAY_LABEL.get(float(r['pay_rate']), f"{r['pay_rate']}倍"),
+            str(r['start_date']), str(r['end_date']), float(r['total_days']),
+            STATUS_LABEL.get(r['status'], r['status']),
+            r['reviewed_by'] or '',
+        ])
+    tag = month or year or 'all'
+    pdf = _build_table_pdf('請假申請', headers, data, col_w, landscape=True)
+    return _make_pdf_response(pdf, f'leave_{tag}.pdf')
+
+
+@app.route('/api/export/leave-balances-pdf', methods=['GET'])
+@login_required
+def api_export_leave_balances_pdf():
+    year = request.args.get('year', '') or str(_dt.now(TW_TZ).year)
+    with get_db() as conn:
+        rows = conn.execute("""
+            SELECT lb.total_days, lb.used_days,
+                   ps.name as staff_name, ps.employee_code, ps.department,
+                   lt.name as leave_type_name, lt.code as leave_code,
+                   COALESCE((
+                       SELECT SUM(lr.total_days) FROM leave_requests lr
+                       WHERE lr.staff_id=lb.staff_id AND lr.leave_type_id=lb.leave_type_id
+                         AND lr.status='pending'
+                         AND EXTRACT(YEAR FROM lr.start_date)=%s
+                   ), 0) AS pending_days
+            FROM leave_balances lb
+            JOIN punch_staff ps ON ps.id=lb.staff_id
+            JOIN leave_types  lt ON lt.id=lb.leave_type_id
+            WHERE lb.year=%s ORDER BY ps.name, lt.name
+        """, (int(year), int(year))).fetchall()
+    headers = ['員工代碼','姓名','部門','假別','假別代碼','年度','配額(天)','已使用(天)','待審(天)','剩餘(天)']
+    col_w   = [14, 14, 12, 14, 12, 10, 12, 14, 12, 12]
+    data = []
+    for r in rows:
+        quota   = float(r['total_days']  or 0)
+        used    = float(r['used_days']   or 0)
+        pending = float(r['pending_days'] or 0)
+        remain  = quota - used - pending
+        data.append([
+            r['employee_code'] or '', r['staff_name'], r['department'] or '',
+            r['leave_type_name'], r['leave_code'] or '', int(year),
+            quota, used, pending, round(remain, 2),
+        ])
+    pdf = _build_table_pdf(f'{year} 假別餘額', headers, data, col_w, landscape=True)
+    return _make_pdf_response(pdf, f'leave_balances_{year}.pdf')
+
+
+@app.route('/api/export/salary-pdf', methods=['GET'])
+@login_required
+def api_export_salary_pdf():
+    month = request.args.get('month', '') or _dt.now(TW_TZ).strftime('%Y-%m')
+    with get_db() as conn:
+        rows = conn.execute("""
+            SELECT sr.*, ps.name as staff_name, ps.employee_code,
+                   ps.department, ps.role, ps.salary_type
+            FROM salary_records sr JOIN punch_staff ps ON ps.id=sr.staff_id
+            WHERE sr.month=%s ORDER BY ps.name
+        """, (month,)).fetchall()
+    headers = ['員工代碼','姓名','部門','薪資制度','工作日','出勤天數','請假天數','底薪','津貼','扣除','加班費','實領金額','狀態']
+    col_w   = [14, 14, 12, 12, 10, 10, 10, 14, 14, 14, 12, 14, 10]
+    data = []
+    for r in rows:
+        sal_type = r['salary_type'] or 'monthly'
+        data.append([
+            r['employee_code'] or '', r['staff_name'], r['department'] or '',
+            '時薪制' if sal_type == 'hourly' else ('日薪制' if sal_type == 'daily' else '月薪制'),
+            float(r['work_days'] or 0), float(r['actual_days'] or 0),
+            float(r['leave_days'] or 0),
+            float(r['base_pay'] or 0),
+            float(r['allowance_total'] or 0), float(r['deduction_total'] or 0),
+            float(r['ot_pay'] or 0), float(r['net_pay'] or 0),
+            '已確認' if r['status'] == 'confirmed' else '草稿',
+        ])
+    pdf = _build_table_pdf(f'{month} 薪資計算', headers, data, col_w, landscape=True)
+    return _make_pdf_response(pdf, f'salary_{month}.pdf')
+
+
+@app.route('/api/export/stores-pdf', methods=['GET'])
+@login_required
+def api_export_stores_pdf():
+    with get_db() as conn:
+        rows = conn.execute("""
+            SELECT s.id, s.name, s.code, s.address, s.active, s.created_at,
+                   COUNT(ps.id) FILTER (WHERE ps.active=TRUE) as staff_count
+            FROM stores s
+            LEFT JOIN punch_staff ps ON ps.store_id=s.id
+            GROUP BY s.id ORDER BY s.id
+        """).fetchall()
+    headers = ['門市ID','名稱','代碼','地址','在職員工數','狀態','建立時間']
+    col_w   = [10, 20, 12, 40, 14, 10, 18]
+    data = []
+    for r in rows:
+        data.append([
+            r['id'], r['name'], r['code'] or '', r['address'] or '',
+            int(r['staff_count'] or 0),
+            '啟用' if r['active'] else '停用',
+            str(r['created_at'])[:10] if r['created_at'] else '',
+        ])
+    pdf = _build_table_pdf('門市列表', headers, data, col_w)
+    return _make_pdf_response(pdf, 'stores.pdf')
 
 
 # ── 17. 教育訓練 Excel → 已移至 blueprints/training.py ──────────────────────────
@@ -19714,6 +20205,66 @@ def api_inv_suggest_po():
 # ═══════════════════════════════════════════════════════════════════════════════
 # PDF 匯出 — 薪資單 / 報價單 / 發票 / 採購訂單
 # ═══════════════════════════════════════════════════════════════════════════════
+
+def _build_table_pdf(title: str, headers: list, rows: list, col_widths=None, landscape=False) -> bytes:
+    """通用表格 PDF 產生器（A4，支援中文）。"""
+    import io
+    from reportlab.lib.pagesizes import A4, landscape as LS
+    from reportlab.lib import colors
+    from reportlab.lib.units import mm
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.enums import TA_CENTER
+
+    buf = io.BytesIO()
+    _, font = _pdf_styles()
+    page = LS(A4) if landscape else A4
+    doc = SimpleDocTemplate(buf, pagesize=page,
+                            leftMargin=12*mm, rightMargin=12*mm,
+                            topMargin=15*mm, bottomMargin=15*mm)
+    W = page[0] - 24*mm
+
+    title_style = ParagraphStyle('t', fontName=font, fontSize=13, alignment=TA_CENTER, spaceAfter=6)
+    cell_style  = ParagraphStyle('c', fontName=font, fontSize=7, leading=9)
+    head_style  = ParagraphStyle('h', fontName=font, fontSize=7, leading=9, textColor=colors.white)
+
+    # column widths
+    n = len(headers)
+    if col_widths and len(col_widths) == n:
+        cw = [w*mm for w in col_widths]
+        # scale to fit page width
+        total = sum(cw)
+        if total > W:
+            cw = [w * W / total for w in cw]
+    else:
+        cw = [W / n] * n
+
+    def _cell(v):
+        return Paragraph(str(v) if v is not None else '', cell_style)
+
+    def _hcell(v):
+        return Paragraph(str(v), head_style)
+
+    table_data = [[_hcell(h) for h in headers]]
+    for r in rows:
+        table_data.append([_cell(v) for v in r])
+
+    tbl = Table(table_data, colWidths=cw, repeatRows=1)
+    tbl.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#2c7be5')),
+        ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor('#f5f8ff')]),
+        ('GRID', (0,0), (-1,-1), 0.3, colors.HexColor('#cccccc')),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('TOPPADDING', (0,0), (-1,-1), 2),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 2),
+        ('LEFTPADDING', (0,0), (-1,-1), 3),
+        ('RIGHTPADDING', (0,0), (-1,-1), 3),
+    ]))
+
+    story = [Paragraph(title, title_style), Spacer(1, 4*mm), tbl]
+    doc.build(story)
+    return buf.getvalue()
+
 
 def _pdf_styles():
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle

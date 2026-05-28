@@ -501,6 +501,8 @@ tbody td.date-cell { font-family: 'Noto Sans TC', sans-serif; font-weight: 500; 
         <a href="/staff" target="_blank" class="btn btn-outline btn-sm" data-i18n="btn.staff_system">員工系統</a>
         <button class="btn btn-primary btn-sm" data-i18n="btn.export_sum_excel" onclick="exportAttSummaryExcel()">匯出摘要 Excel</button>
         <button class="btn btn-ghost btn-sm" data-i18n="btn.export_detail_excel" onclick="exportAttDetailExcel()">匯出明細 Excel</button>
+        <button class="btn btn-outline btn-sm" onclick="exportAttSummaryPDF()"><i class="bi bi-file-earmark-pdf"></i> 摘要 PDF</button>
+        <button class="btn btn-outline btn-sm" onclick="exportAttDetailPDF()"><i class="bi bi-file-earmark-pdf"></i> 明細 PDF</button>
         <button class="btn btn-outline btn-sm" data-i18n="btn.export_sum_csv" onclick="exportAttSummary()">摘要 CSV</button>
         <button class="btn btn-outline btn-sm" data-i18n="btn.export_detail_csv" onclick="exportAttDetail()">明細 CSV</button>
       </div>
@@ -576,6 +578,7 @@ tbody td.date-cell { font-family: 'Noto Sans TC', sans-serif; font-weight: 500; 
         <span id="punch-staff-count" style="font-size:13px;color:var(--muted)"></span>
         <div class="panel-bar-actions">
           <button class="btn btn-outline btn-sm" onclick="exportStaffExcel()" data-i18n="btn.export_excel">匯出 Excel</button>
+          <button class="btn btn-outline btn-sm" onclick="exportStaffPDF()"><i class="bi bi-file-earmark-pdf"></i> PDF</button>
           <button class="btn btn-primary" onclick="openPunchStaffModal()" data-i18n="btn.add_staff">新增員工</button>
         </div>
       </div>
@@ -603,6 +606,7 @@ tbody td.date-cell { font-family: 'Noto Sans TC', sans-serif; font-weight: 500; 
         <span style="flex:1"></span>
         <span id="preq-count" style="font-size:12px;color:var(--muted)"></span>
         <button class="btn btn-outline btn-sm" onclick="exportPunchRequestsExcel()">匯出 Excel</button>
+        <button class="btn btn-outline btn-sm" onclick="exportPunchRequestsPDF()"><i class="bi bi-file-earmark-pdf"></i> PDF</button>
         <button class="btn btn-primary btn-sm" id="preq-batch-approve" style="display:none" data-i18n="btn.batch_approve" onclick="batchReview('punch','approve')">批次核准</button>
         <button class="btn btn-danger btn-sm"  id="preq-batch-reject"  style="display:none" data-i18n="btn.batch_reject" onclick="batchReview('punch','reject')">批次退回</button>
       </div>
@@ -648,6 +652,7 @@ tbody td.date-cell { font-family: 'Noto Sans TC', sans-serif; font-weight: 500; 
         <span style="flex:1"></span>
         <span id="ot-req-count" style="font-size:12px;color:var(--muted)"></span>
         <button class="btn btn-outline btn-sm" onclick="exportOvertimeExcel()">匯出 Excel</button>
+        <button class="btn btn-outline btn-sm" onclick="exportOvertimePDF()"><i class="bi bi-file-earmark-pdf"></i> PDF</button>
         <button class="btn btn-primary btn-sm" id="ot-batch-approve" style="display:none" data-i18n="btn.batch_approve" onclick="batchReview('ot','approve')">批次核准</button>
         <button class="btn btn-danger btn-sm"  id="ot-batch-reject"  style="display:none" data-i18n="btn.batch_reject" onclick="batchReview('ot','reject')">批次退回</button>
       </div>
@@ -896,6 +901,7 @@ tbody td.date-cell { font-family: 'Noto Sans TC', sans-serif; font-weight: 500; 
         <button class="btn btn-primary btn-sm" onclick="loadMonthlyStats()">查詢</button>
         <span style="flex:1"></span>
         <button class="btn btn-primary btn-sm" onclick="exportMonthlyStatsExcel()">匯出 Excel</button>
+        <button class="btn btn-outline btn-sm" onclick="exportMonthlyStatsPDF()"><i class="bi bi-file-earmark-pdf"></i> PDF</button>
         <button class="btn btn-outline btn-sm" onclick="exportMonthlyStats()">匯出 CSV</button>
       </div>
       <div class="card">
@@ -989,6 +995,7 @@ tbody td.date-cell { font-family: 'Noto Sans TC', sans-serif; font-weight: 500; 
         </select>
         <span style="flex:1"></span>
         <button class="btn btn-outline btn-sm" onclick="exportSchedRequestsExcel()">匯出 Excel</button>
+        <button class="btn btn-outline btn-sm" onclick="exportSchedRequestsPDF()"><i class="bi bi-file-earmark-pdf"></i> PDF</button>
         <span id="sched-req-count" style="font-size:12px;color:var(--muted)"></span>
       </div>
       <div id="sched-req-list"></div>
@@ -1107,6 +1114,7 @@ tbody td.date-cell { font-family: 'Noto Sans TC', sans-serif; font-weight: 500; 
           <input type="checkbox" id="leave-select-all" onchange="selectAllBatch('leave',this.checked)">全選
         </label>
         <button class="btn btn-outline btn-sm" onclick="exportLeaveExcel()">匯出 Excel</button>
+        <button class="btn btn-outline btn-sm" onclick="exportLeavePDF()"><i class="bi bi-file-earmark-pdf"></i> PDF</button>
         <button class="btn btn-primary" data-i18n="btn.admin_fill" onclick="openLeaveAdminModal()">管理員代填</button>
         <span id="leave-req-count" style="font-size:12px;color:var(--muted)"></span>
         <button class="btn btn-primary btn-sm" id="leave-batch-approve" style="display:none" data-i18n="btn.batch_approve" onclick="batchReview('leave','approve')">批次核准</button>
@@ -1132,6 +1140,7 @@ tbody td.date-cell { font-family: 'Noto Sans TC', sans-serif; font-weight: 500; 
         <button class="btn btn-outline btn-sm" onclick="initAnnualLeave()" data-i18n="btn.calc_annual">自動計算特休</button>
         <span style="flex:1"></span>
         <button class="btn btn-outline btn-sm" onclick="exportLeaveBalancesExcel()">匯出 Excel</button>
+        <button class="btn btn-outline btn-sm" onclick="exportLeaveBalancesPDF()"><i class="bi bi-file-earmark-pdf"></i> PDF</button>
         <span id="leave-bal-note" style="font-size:12px;color:var(--muted)"></span>
       </div>
       <div id="leave-bal-wrap"></div>
@@ -1199,6 +1208,7 @@ tbody td.date-cell { font-family: 'Noto Sans TC', sans-serif; font-weight: 500; 
         <button class="btn btn-outline btn-sm" id="sal-confirm-all-btn" onclick="confirmAllSalary()" style="display:none">全部確認</button>
         <button class="btn btn-outline btn-sm" id="sal-bulk-print-btn" onclick="bulkPrintPayslips()" style="display:none">列印全部薪資單</button>
         <button class="btn btn-primary btn-sm" data-i18n="btn.export_salary_excel" onclick="exportSalaryExcel()">匯出薪資 Excel</button>
+        <button class="btn btn-outline btn-sm" onclick="exportSalaryPDF()"><i class="bi bi-file-earmark-pdf"></i> 薪資 PDF</button>
         <button class="btn btn-outline btn-sm" data-i18n="btn.export_leave_excel" onclick="exportLeaveExcel()">匯出請假 Excel</button>
         <button class="btn btn-ghost btn-sm" data-i18n="btn.salary_csv" onclick="exportSalaryCSV()">薪資 CSV</button>
         <span style="flex:1"></span>
@@ -1882,6 +1892,7 @@ tbody td.date-cell { font-family: 'Noto Sans TC', sans-serif; font-weight: 500; 
       <span style="font-size:13px;color:var(--muted)" data-i18n="stores.desc">管理多個門市，並為員工指派所屬門市</span>
       <div style="display:flex;gap:8px">
         <button class="btn btn-outline btn-sm" onclick="exportStoresExcel()" data-i18n="btn.export_excel">匯出 Excel</button>
+        <button class="btn btn-outline btn-sm" onclick="exportStoresPDF()"><i class="bi bi-file-earmark-pdf"></i> PDF</button>
         <button class="btn btn-primary btn-sm" onclick="openStoreModal()" data-i18n="btn.add_store">新增門市</button>
       </div>
     </div>
@@ -5823,7 +5834,7 @@ tbody td.date-cell { font-family: 'Noto Sans TC', sans-serif; font-weight: 500; 
       </div>
     </div>
     <div class="modal-body" id="sal-detail-body" style="padding:0"></div>
-    <div style="padding:10px 20px;border-top:1px solid var(--border);background:var(--bg)">
+    <div id="sal-adjust-bar" style="padding:10px 20px;border-top:1px solid var(--border);background:var(--bg)">
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <span style="font-size:12px;color:var(--muted);flex:1">手動調整：</span>
         <input class="form-input" style="width:140px;font-size:12px" id="adj-name" placeholder="項目名稱（如：績效獎金）">
@@ -13798,7 +13809,7 @@ async function loadManualStaffOptions() {
   const sel = document.getElementById('man-staff');
   sel.innerHTML = punchStaffList.filter(s => s.active).map(s => `<option value="${s.id}">${escHtml(s.name)}</option>`).join('');
   const now = new Date();
-  document.getElementById('man-time').value = new Date(now.getTime() - now.getTimezoneOffset()*60000).toISOString().slice(0,16);
+  document.getElementById('man-time').value = new Date(now.getTime() + 8*3600000).toISOString().slice(0,16);
 }
 async function loadManualRecords() {
   const { ok, data } = await api('/api/punch/records?', {}, true);
@@ -13813,7 +13824,7 @@ async function loadManualRecords() {
 async function submitManualPunch() {
   const staff_id   = document.getElementById('man-staff').value;
   const punch_type = document.getElementById('man-type').value;
-  const punched_at = document.getElementById('man-time').value + '+08:00';
+  const punched_at = document.getElementById('man-time').value + ':00+08:00';
   const manual_by  = document.getElementById('man-by').value.trim();
   const note       = document.getElementById('man-note').value.trim();
   if (!staff_id || !document.getElementById('man-time').value) { showToast(t('manual.fill_all'), 'error'); return; }
@@ -14302,24 +14313,33 @@ async function loadAdminDrvAllw() {
   } catch(e) { el.innerHTML = '<div style="color:var(--red);font-size:13px;padding:10px">載入失敗</div>'; }
 }
 
+let _drvReviewing = false;
 async function reviewDrvAllw(id, action) {
-  let review_note = '';
-  if (action === 'reject') {
-    review_note = prompt('退回原因（可留空）') || '';
-  }
-  const reviewed_by = '管理員';
-  const r = await fetch(`/api/admin/driver-allowance/${id}/review`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action, review_note, reviewed_by })
-  });
-  if (r.ok) {
-    showToast(action==='approve'?'已核准':'已退回');
-    loadAdminDrvAllw();
-    refreshBadges();
-  } else {
-    const d = await r.json();
-    showToast(d.error||'操作失敗', 'error');
+  if (_drvReviewing) return;
+  _drvReviewing = true;
+  try {
+    let review_note = '';
+    if (action === 'reject') {
+      review_note = prompt('退回原因（可留空）') || '';
+    }
+    const reviewed_by = '管理員';
+    const r = await fetch(`/api/admin/driver-allowance/${id}/review`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, review_note, reviewed_by })
+    });
+    if (r.ok) {
+      const d = await r.json();
+      showToast(action==='approve'?'已核准':'已退回');
+      if (d.salary_reset) showToast('⚠️ 該員工當月薪資已重設為草稿，請重新確認薪資', 'info');
+      loadAdminDrvAllw();
+      refreshBadges();
+    } else {
+      const d = await r.json();
+      showToast(d.error||'操作失敗', 'error');
+    }
+  } finally {
+    _drvReviewing = false;
   }
 }
 
@@ -14521,7 +14541,10 @@ async function reviewOTRequest(action) {
   if (!by) { showToast(t('ot.approver_required'),'error'); return; }
   const { ok, data } = await api(`/api/overtime/requests/${id}`, apiPUT({ action, reviewed_by: by, review_note: note }));
   if (!ok) return;
-  closeOTReview(); showToast(action==='approve' ? t('ot.approved').replace('${0}', Number(data.ot_pay||0).toLocaleString()) : t('ot.rejected'),'success'); await loadOTRequests();
+  closeOTReview();
+  showToast(action==='approve' ? t('ot.approved').replace('${0}', Number(data.ot_pay||0).toLocaleString()) : t('ot.rejected'),'success');
+  if (data.salary_reset) showToast('⚠️ 該員工當月薪資已重設為草稿，請重新確認薪資', 'info');
+  await loadOTRequests();
 }
 async function deleteOTReq(id) {
   if (!confirm(t('ot.confirm_delete'))) return;
@@ -15682,7 +15705,7 @@ async function loadSalaryConfig() {
 
 async function saveSalaryConfig() {
   const day = parseInt(document.getElementById('sal-payroll-day').value) || 5;
-  const {ok} = await api('/api/salary/settings', apiJSON({payroll_day: day}), 'PUT');
+  const {ok} = await api('/api/salary/settings', apiPUT({payroll_day: day}));
   if (ok) {
     const msg = document.getElementById('sal-cfg-msg');
     msg.textContent = t('salary.cfg_saved');
@@ -15949,8 +15972,10 @@ async function openSalDetail(id) {
   if (!ok) return;
   const month = data.month;
   document.getElementById('sdm-title').textContent = tf('salary.detail_title', month, data.staff_name);
-  document.getElementById('sdm-confirm-btn').style.display = data.status==='confirmed'?'none':'';
+  const isConfirmed = data.status === 'confirmed';
+  document.getElementById('sdm-confirm-btn').style.display = isConfirmed ? 'none' : '';
   document.getElementById('sdm-confirm-btn').setAttribute('data-id', id);
+  document.getElementById('sal-adjust-bar').style.display = isConfirmed ? 'none' : '';
   const items = data.items||[];
   const allowItems = items.filter(it=>it.type==='allowance');
   const deductItems= items.filter(it=>it.type==='deduction');
@@ -16182,8 +16207,8 @@ async function addSalaryAdjustment() {
   const allowTotal = items.filter(i=>i.type==='allowance').reduce((s,i)=>s+i.amount,0);
   const deductTotal = items.filter(i=>i.type==='deduction').reduce((s,i)=>s+i.amount,0);
   const body = { items, allowance_total:allowTotal, deduction_total:deductTotal, net_pay:allowTotal-deductTotal };
-  const {ok:ok2} = await api(`/api/salary/records/${id}`, apiJSON(body, 'PUT'));
-  if (!ok2) return;
+  const {ok:ok2, data:d2} = await api(`/api/salary/records/${id}`, apiPUT(body));
+  if (!ok2) { showToast(d2?.error || '更新失敗', 'error'); return; }
   document.getElementById('adj-name').value='';
   document.getElementById('adj-amount').value='';
   showToast(`已加入「${name}」$${fmtNum(amount)}`,'success');
@@ -16797,6 +16822,86 @@ function exportPerformanceExcel() {
 
 function exportStoresExcel() {
   window.location.href = '/api/export/stores-excel';
+}
+
+function exportAttSummaryPDF() {
+  const month = document.getElementById('sum-month').value;
+  if (!month) { showToast('請先選擇月份', 'error'); return; }
+  window.open(`/api/export/attendance-summary-pdf?month=${month}`, '_blank');
+}
+
+function exportAttDetailPDF() {
+  const month   = document.getElementById('sum-month').value;
+  const staffEl = document.getElementById('rec-filter-staff');
+  const staff   = staffEl ? staffEl.value : '';
+  if (!month) { showToast('請先選擇月份', 'error'); return; }
+  let url = `/api/export/attendance-pdf?month=${month}`;
+  if (staff) url += `&staff_id=${staff}`;
+  window.open(url, '_blank');
+}
+
+function exportMonthlyStatsPDF() {
+  const month = document.getElementById('mstats-month').value;
+  if (!month) { showToast('請先選擇月份', 'error'); return; }
+  window.open(`/api/export/monthly-stats-pdf?month=${month}`, '_blank');
+}
+
+function exportStaffPDF() {
+  window.open('/api/export/staff-pdf', '_blank');
+}
+
+function exportOvertimePDF() {
+  const month  = document.getElementById('ot-filter-month')?.value || '';
+  const status = document.getElementById('ot-filter-status')?.value || '';
+  const params = [];
+  if (month)  params.push(`month=${month}`);
+  if (status) params.push(`status=${status}`);
+  window.open('/api/export/overtime-pdf' + (params.length ? '?' + params.join('&') : ''), '_blank');
+}
+
+function exportPunchRequestsPDF() {
+  const status = document.getElementById('preq-filter-status')?.value || '';
+  const today  = new Date();
+  const month  = today.getFullYear() + '-' + String(today.getMonth()+1).padStart(2,'0');
+  let url = `/api/export/punch-requests-pdf?month=${month}`;
+  if (status) url += `&status=${status}`;
+  window.open(url, '_blank');
+}
+
+function exportSchedRequestsPDF() {
+  const month  = document.getElementById('sched-req-month')?.value || '';
+  const status = document.getElementById('sched-req-status')?.value || '';
+  if (!month) { showToast('請先選擇月份', 'error'); return; }
+  let url = `/api/export/schedule-requests-pdf?month=${month}`;
+  if (status) url += `&status=${status}`;
+  window.open(url, '_blank');
+}
+
+function exportLeavePDF() {
+  const monthEl = document.getElementById('leave-req-month') || document.getElementById('sal-month');
+  const month   = monthEl ? monthEl.value : '';
+  const status  = document.getElementById('leave-req-status')?.value || '';
+  const staff   = document.getElementById('leave-req-staff')?.value  || '';
+  const params = [];
+  if (month)  params.push(`month=${month}`);
+  if (status) params.push(`status=${status}`);
+  if (staff)  params.push(`staff_id=${staff}`);
+  window.open('/api/export/leave-pdf' + (params.length ? '?' + params.join('&') : ''), '_blank');
+}
+
+function exportLeaveBalancesPDF() {
+  const year = document.getElementById('leave-bal-year')?.value || new Date().getFullYear();
+  window.open(`/api/export/leave-balances-pdf?year=${year}`, '_blank');
+}
+
+function exportSalaryPDF() {
+  const month = document.getElementById('sal-month').value;
+  if (!month) { showToast('請先選擇月份', 'error'); return; }
+  window.open(`/api/export/salary-pdf?month=${month}`, '_blank');
+}
+
+function exportStoresPDF() {
+  window.open('/api/export/stores-pdf', '_blank');
 }
 
 function exportTrainingExcel() {
@@ -19683,7 +19788,7 @@ async function saveStoreModal() {
   };
   if (!body.name) { showToast(t('store.name_required'), 'error'); return; }
   const r = id
-    ? await api(`/api/stores/${id}`, apiJSON(body, 'PUT'))
+    ? await api(`/api/stores/${id}`, apiPUT(body))
     : await api('/api/stores', apiJSON(body));
   if (r.ok) {
     document.getElementById('store-modal').style.display = 'none';
@@ -19729,7 +19834,7 @@ async function assignStaffStore() {
   const storeId = document.getElementById('store-assign-target')?.value;
   const staffId = document.getElementById('store-assign-staff')?.value;
   if (!storeId || !staffId) { showToast(t('store.assign_required'), 'error'); return; }
-  const r = await api(`/api/staff/${staffId}/store`, apiJSON({ store_id: parseInt(storeId) }, 'PUT'));
+  const r = await api(`/api/staff/${staffId}/store`, apiPUT({ store_id: parseInt(storeId) }));
   if (r.ok) {
     showToast(t('store.assigned'), 'success');
     // Refresh list if viewing the target store
@@ -19740,7 +19845,7 @@ async function assignStaffStore() {
 
 async function removeStaffFromStore(staffId) {
   const storeId = document.getElementById('store-assign-store')?.value;
-  const r = await api(`/api/staff/${staffId}/store`, apiJSON({ store_id: null }, 'PUT'));
+  const r = await api(`/api/staff/${staffId}/store`, apiPUT({ store_id: null }));
   if (r.ok) { showToast(t('store.removed'), 'success'); if (storeId) loadStoreStaff(storeId); }
   else showToast(tf('store.remove_fail', r.data?.error || ''), 'error');
 }
@@ -19952,7 +20057,7 @@ async function saveTrainingRecord() {
   };
   if (!body.staff_id || !body.course_name) { showToast('請填寫員工與課程名稱', 'error'); return; }
   const r = id
-    ? await api(`/api/training/records/${id}`, apiJSON(body, 'PUT'))
+    ? await api(`/api/training/records/${id}`, apiPUT(body))
     : await api('/api/training/records', apiJSON(body));
   if (r.ok) {
     document.getElementById('training-modal').style.display = 'none';

@@ -823,6 +823,7 @@ function gpsOk(pos){
   else{setGpsBar('warn',staffT('gps.outside').replace('{0}',minLoc.location_name).replace('{1}',minDist));setBtns(req,staffT('gps.out_range'));}
 }
 function gpsErr(){
+  gpsPos=null; // 清除過期座標，防止用舊位置打卡
   if(gpsSettings&&gpsSettings.gps_required){setGpsBar('err',staffT('gps.err_required'));setBtns(true,staffT('gps.err_required'));}
   else{setGpsBar('warn',staffT('gps.err_optional'));setBtns(false);}
 }
@@ -883,16 +884,19 @@ const REQ_CLS={pending:'background:var(--orange-light);color:var(--orange)',appr
 function showReqPanel(){
   const panel=document.getElementById('req-panel');panel.style.display='';
   const now=new Date();
-  const local=new Date(now.getTime()+(8*60-now.getTimezoneOffset())*60000).toISOString().slice(0,16);
+  // 固定以台灣時間（UTC+8）填入預設值，不依賴裝置時區
+  const local=new Date(now.getTime()+8*3600000).toISOString().slice(0,16);
   document.getElementById('req-time').value=local;loadMyReqs();
 }
 function hideReqPanel(){document.getElementById('req-panel').style.display='none';}
 async function submitPunchReq(){
   const punch_type=document.getElementById('req-type').value;
-  const requested_at=document.getElementById('req-time').value;
+  const raw_time=document.getElementById('req-time').value;
   const reason=document.getElementById('req-reason').value.trim();
   if(!reason){showToast(staffT('req.need_reason'),'err');return;}
-  if(!requested_at){showToast(staffT('req.need_time'),'err');return;}
+  if(!raw_time){showToast(staffT('req.need_time'),'err');return;}
+  // 補上台灣時區標記，避免後端當 UTC 存入
+  const requested_at=raw_time+':00+08:00';
   try{
     const res=await fetch('/api/punch/request',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({punch_type,requested_at,reason})});
     const d=await res.json();
