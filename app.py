@@ -5488,6 +5488,8 @@ def init_salary_db():
         "ALTER TABLE salary_records ADD COLUMN IF NOT EXISTS hourly_base_pay NUMERIC(12,2) DEFAULT 0",
         "ALTER TABLE salary_records ADD COLUMN IF NOT EXISTS actual_work_hours NUMERIC(7,2) DEFAULT 0",
         "ALTER TABLE salary_records ADD COLUMN IF NOT EXISTS punch_details JSONB DEFAULT '[]'",
+        # 移除互相抵銷的勞退提撥（雇主負擔，不應出現在員工薪資單；僅清除自動種子產生的冗餘兩筆）
+        "DELETE FROM salary_items WHERE name IN ('勞退6%','勞退提撥6%') AND formula='base_salary*0.06+service_years*1000*0.06'",
         """CREATE TABLE IF NOT EXISTS salary_records (
             id              SERIAL PRIMARY KEY,
             staff_id        INT REFERENCES punch_staff(id) ON DELETE CASCADE,
@@ -5557,11 +5559,10 @@ def init_salary_db():
         ('全勤獎金',    'allowance', '',                                0,    '#c8a96e', 3),
         ('獎金',        'allowance', '',                                0,    '#8b5cf6', 4),
         ('生日禮金',    'allowance', '',                                1000, '#e05c8a', 5),
-        ('勞退6%',      'allowance', 'base_salary*0.06+service_years*1000*0.06', 0, '#4a7bda', 6),
         ('病/事/假',    'deduction', '',                                0,    '#8892a4', 7),
         ('勞保費',      'deduction', 'insured_salary*0.125*0.2',       0,    '#d64242', 8),
         ('健保費',      'deduction', 'insured_salary*0.0517*0.3',      0,    '#e07b2a', 9),
-        ('勞退提撥6%',  'deduction', 'base_salary*0.06+service_years*1000*0.06', 0, '#4a7bda', 10),
+        # 勞退提撥（雇主負擔 6%）依勞基法不從員工薪資扣除，故不列入薪資項目
     ]
     try:
         with get_db() as conn:
@@ -5631,7 +5632,7 @@ def _eval_formula(formula, base_salary, insured_salary, service_years):
     _ALLOWED_NODES = (
         _ast.Expression, _ast.BinOp, _ast.UnaryOp, _ast.Constant,
         _ast.Add, _ast.Sub, _ast.Mult, _ast.Div, _ast.FloorDiv,
-        _ast.Mod, _ast.Pow, _ast.USub, _ast.UAdd, _ast.Name,
+        _ast.Mod, _ast.Pow, _ast.USub, _ast.UAdd, _ast.Name, _ast.Load,
     )
     _vars = {
         'base_salary':    float(base_salary or 0),
@@ -5864,7 +5865,8 @@ def _auto_generate_salary(conn, staff, month, work_days=None, batch_ctx=None):
     hourly_rate    = float(staff.get('hourly_rate')    or 0)
     insured_salary = float(staff.get('insured_salary') or base_salary)
     daily_hours    = float(staff.get('daily_hours')    or 8)
-    service_years  = _calc_service_years(staff.get('hire_date'))
+    # 年資加給以「滿一年」為單位（取整數年），未滿一年不計
+    service_years  = float(int(_calc_service_years(staff.get('hire_date'))))
     meal_allowance = float(staff.get('meal_allowance') or 0)
 
     # ── 已核准加班費（必須先取得，時薪制計算本薪時需要 total_ot_hours）──
@@ -6283,7 +6285,7 @@ def _auto_generate_salary(conn, staff, month, work_days=None, batch_ctx=None):
             'type': 'allowance',
             'amount': round(_drvr_total, 2),
             'formula': '',
-            'calc_note': f'{_drvr_cnt}筆 × $125',
+            'calc_note': f'{_drvr_cnt}筆司機補貼合計',
         })
         allowance_total += _drvr_total
 
@@ -12320,7 +12322,7 @@ def _line_query_salary(staff, user_id):
     try:
         with get_db() as conn:
             row = conn.execute("""
-                SELECT month, net_pay, base_salary, ot_pay,
+                SELECT month, net_pay, base_salary, hourly_base_pay, salary_type, ot_pay,
                        allowance_total, deduction_total, status,
                        work_days, actual_days
                 FROM salary_records
@@ -12347,11 +12349,19 @@ def _line_query_salary(staff, user_id):
     if comp_bal:
         remain = float(comp_bal['total_days'] or 0) - float(comp_bal['used_days'] or 0)
         comp_str = _lmsg('salary_comp_bal', lang, remain=f'{remain:.1f}', year=comp_bal['year'])
+    # 底薪：月薪制取 base_salary；時薪/日薪制取實際本薪（hourly_base_pay 已存日薪制全勤本薪）
+    _styp = row['salary_type'] or 'monthly'
+    _disp_base = float(row['base_salary'] or 0) if _styp == 'monthly' else float(row['hourly_base_pay'] or 0)
+    _ot_pay    = float(row['ot_pay'] or 0)
+    # 其他津貼 = 津貼合計 − 本薪 − 加班費，避免底薪與津貼重疊（底薪+其他津貼+加班−扣除=實領）
+    _other_allow = round(float(row['allowance_total'] or 0) - _disp_base - _ot_pay, 0)
+    if _other_allow < 0:
+        _other_allow = 0.0
     _send_line_punch(user_id, _lmsg('salary_body', lang,
         name=staff['name'], month=row['month'],
-        base=float(row['base_salary'] or 0),
-        allow=float(row['allowance_total'] or 0),
-        ot=float(row['ot_pay'] or 0),
+        base=_disp_base,
+        allow=_other_allow,
+        ot=_ot_pay,
         ded=float(row['deduction_total'] or 0),
         net=float(row['net_pay'] or 0),
         actual=float(row['actual_days'] or 0),
