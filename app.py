@@ -2838,7 +2838,9 @@ def _do_line_punch(staff, user_id, lat, lng, forced_type, PUNCH_LABEL):
         pass
 
     # 開車去/開車回打卡後詢問是否申請司機補貼
-    if punch_type in ('break_out', 'break_in') and new_punch_id:
+    # 〔已停用〕司機補貼改為固定津貼（薪資項目「司機補貼」每月固定發放、免簽核），
+    # 不再使用 LINE 逐趟申請制，避免與固定津貼重複計算。
+    if False and punch_type in ('break_out', 'break_in') and new_punch_id:
         try:
             with get_db() as conn:
                 already = conn.execute(
@@ -4297,6 +4299,38 @@ def _calc_ot_pay(staff_row, ot_hours, day_type='weekday'):
         pay = round(base_hourly * (h1 * ot_rate1 + h2 * ot_rate2), 0)
 
     return pay, base_hourly
+
+
+def _recompute_approved_ot_pay(conn, sid):
+    """員工薪資（底薪／時薪／加班倍率）變動後，重算其所有已核准加班費（cash／both）。
+    加班費原本是核准當下用「當時薪資」算好的快照，薪資事後變動不會自動更新，
+    這裡依現行薪資重算，並把受影響月份的薪資單重設為草稿。回傳更新筆數。"""
+    staff = conn.execute("""
+        SELECT base_salary, hourly_rate, daily_hours,
+               ot_rate1, ot_rate2, ot_rate_holiday, ot_rate_special, salary_type
+        FROM punch_staff WHERE id=%s
+    """, (sid,)).fetchone()
+    if not staff:
+        return 0
+    rows = conn.execute("""
+        SELECT id, request_date, day_type, ot_hours, ot_pay
+        FROM overtime_requests
+        WHERE staff_id=%s AND status='approved' AND pay_mode IN ('cash','both')
+    """, (sid,)).fetchall()
+    changed = 0
+    months = set()
+    for r in rows:
+        new_pay, _ = _calc_ot_pay(staff, float(r['ot_hours'] or 0), r.get('day_type') or 'weekday')
+        if round(float(r['ot_pay'] or 0), 0) != round(float(new_pay), 0):
+            conn.execute("UPDATE overtime_requests SET ot_pay=%s WHERE id=%s", (new_pay, r['id']))
+            months.add(str(r['request_date'])[:7])
+            changed += 1
+    for mon in months:
+        conn.execute("""
+            UPDATE salary_records SET status='draft', updated_at=NOW()
+            WHERE staff_id=%s AND month=%s AND status IN ('confirmed','draft')
+        """, (sid, mon))
+    return changed
 
 
 @app.route('/api/overtime/requests/<int:rid>', methods=['PUT'])
@@ -6420,29 +6454,36 @@ def _auto_generate_salary(conn, staff, month, work_days=None, batch_ctx=None):
             allowance_total += _drv_auto_total
 
     # ── 司機補貼（申請核准） ─────────────────────────────────────
-    _ms_da, _me_da = _month_range(month)
-    if batch_ctx is not None:
-        drvr_rows = batch_ctx.get('driver_allowances', {}).get(staff['id'], [])
-    else:
-        drvr_rows = conn.execute("""
-            SELECT id, amount, apply_date, direction
-            FROM driver_allowance_requests
-            WHERE staff_id=%s AND status='approved'
-              AND apply_date >= %s::date AND apply_date < %s::date
-        """, (staff['id'], _ms_da, _me_da)).fetchall()
-        drvr_rows = [dict(r) for r in drvr_rows]
-    if drvr_rows:
-        _drvr_total = sum(float(r['amount']) for r in drvr_rows)
-        _drvr_cnt = len(drvr_rows)
-        items.append({
-            'id': 'driver_allowance_requests',
-            'name': '司機補貼',
-            'type': 'allowance',
-            'amount': round(_drvr_total, 2),
-            'formula': '',
-            'calc_note': f'{_drvr_cnt}筆司機補貼合計',
-        })
-        allowance_total += _drvr_total
+    # 〔已停用〕司機補貼改為固定津貼（薪資項目「司機補貼」每月固定發放、免簽核），
+    # 不再把 LINE 申請核准的逐趟補貼計入薪資，避免與固定津貼重複計算。
+
+    # ── 固定司機補貼（薪資項目）：日薪／時薪制也以固定金額發放 ─────────────────
+    # 月薪制已在上方薪資項目迴圈處理；此處補上日薪／時薪制，使「每人每月固定」一致。
+    if salary_type in ('hourly', 'daily'):
+        _staff_item_ids = staff.get('salary_item_ids')
+        if batch_ctx is not None:
+            _drv_items = [it for it in batch_ctx['salary_items']
+                          if it['item_type'] == 'allowance' and '司機補貼' in (it['name'] or '')]
+        else:
+            _drv_items = conn.execute("""
+                SELECT * FROM salary_items
+                WHERE active=TRUE AND item_type='allowance' AND name LIKE '%司機補貼%'
+                ORDER BY sort_order, id
+            """).fetchall()
+        _ids_set = set(_staff_item_ids) if _staff_item_ids else None
+        for _it in _drv_items:
+            if _ids_set is not None and _it['id'] not in _ids_set:
+                continue
+            _formula = _it['formula'] or ''
+            _fixed = (_eval_formula(_formula, base_salary, insured_salary, service_years)
+                      if _formula else float(_it['amount'] or 0))
+            _amt, _ov = _apply_override(_it['id'], _fixed)
+            items.append({
+                'id': _it['id'], 'name': _it['name'], 'type': 'allowance',
+                'amount': round(_amt, 2), 'formula': _formula,
+                'calc_note': f'手動設定 ${_amt}' if _ov else '每月固定',
+            })
+            allowance_total += _amt
 
     # ── 餐費補貼（每日固定補貼 × 實際出勤天數）────────────────────────
     if meal_allowance > 0:
@@ -7302,6 +7343,8 @@ def api_salary_staff_update(sid):
               (b.get('address') or '').strip(),
               _f('meal_allowance'), _f('driver_allowance'),
               sid))
+        # 薪資變動後，重算該員工已核准加班費（避免快照過時導致 0 元或舊金額）
+        _recompute_approved_ot_pay(conn, sid)
         row = conn.execute("SELECT * FROM punch_staff WHERE id=%s", (sid,)).fetchone()
     return jsonify(punch_staff_row(row)) if row else ('', 404)
 
@@ -9336,8 +9379,17 @@ def api_ot_batch():
             """, (new_status, by, note, rid)).fetchone()
             if row:
                 if action == 'approve':
-                    pay, _ = _calc_ot_pay(dict(row), float(row['ot_hours']),
-                                          row.get('day_type','weekday'))
+                    staff_s = conn.execute("""
+                        SELECT base_salary, hourly_rate, daily_hours,
+                               ot_rate1, ot_rate2, ot_rate_holiday, ot_rate_special, salary_type
+                        FROM punch_staff WHERE id=%s
+                    """, (row['staff_id'],)).fetchone()
+                    pay_mode_s = row.get('pay_mode', 'cash') or 'cash'
+                    if staff_s and pay_mode_s in ('cash', 'both'):
+                        pay, _ = _calc_ot_pay(dict(staff_s), float(row['ot_hours']),
+                                              row.get('day_type', 'weekday'))
+                    else:
+                        pay = 0.0
                     conn.execute("""
                         UPDATE overtime_requests SET ot_pay=%s WHERE id=%s
                     """, (pay, rid))
