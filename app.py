@@ -2812,15 +2812,18 @@ def _do_line_punch(staff, user_id, lat, lng, forced_type, PUNCH_LABEL):
 
     now      = _dt3.now(TW)
     gps_info = f'\n📍 {matched_name} ({gps_distance}m)' if gps_distance is not None else ''
-    _send_line_punch(user_id, _lmsg('punch_success', _lang(),
-        label=label, name=staff['name'],
-        time=now.strftime('%Y/%m/%d %H:%M'), gps=gps_info))
 
-    # 打卡成功後附上當日薪資預估（下班打卡或有打卡紀錄時才顯示）
+    # 把成功訊息、薪資預估、司機補貼申請合併成最多 5 則，用單一 reply 發出（不耗 Push 配額）
+    _reply_msgs = []
+    _reply_msgs.append({'type': 'text', 'text': _i18n_translate(
+        _lmsg('punch_success', _lang(), label=label, name=staff['name'],
+              time=now.strftime('%Y/%m/%d %H:%M'), gps=gps_info), _lang())})
+
+    # 薪資預估
     try:
         pay = _calc_today_pay(staff)
         if pay['has_in']:
-            lines = ['', '─────────────────', '當日薪資預估']
+            lines = ['─────────────────', '當日薪資預估']
             if pay['hours_worked'] > 0:
                 lines.append(f'  工時：{pay["hours_worked"]}h')
             lines.append(f'  基本日薪：${int(pay["daily_pay"]):,}')
@@ -2833,35 +2836,35 @@ def _do_line_punch(staff, user_id, lat, lng, forced_type, PUNCH_LABEL):
             lines.append(f'  小計：${int(pay["total"]):,}')
             if not pay['has_out']:
                 lines.append('  （尚未下班，僅供參考）')
-            _send_line_punch(user_id, '\n'.join(lines))
+            _reply_msgs.append({'type': 'text', 'text': '\n'.join(lines)})
     except Exception:
         pass
 
-    # 開車去/開車回打卡後詢問是否申請司機補貼
-    # 〔已停用〕司機補貼改為固定津貼（薪資項目「司機補貼」每月固定發放、免簽核），
-    # 不再使用 LINE 逐趟申請制，避免與固定津貼重複計算。
-    if False and punch_type in ('break_out', 'break_in') and new_punch_id:
+    # 司機補貼申請（開車去/開車回）
+    _drv_msg = None
+    if punch_type in ('break_out', 'break_in') and new_punch_id:
         try:
-            with get_db() as conn:
-                already = conn.execute(
-                    "SELECT id FROM driver_allowance_requests WHERE punch_id=%s",
-                    (new_punch_id,)
+            with get_db() as _dconn:
+                _already = _dconn.execute(
+                    "SELECT id FROM driver_allowance_requests WHERE punch_id=%s", (new_punch_id,)
                 ).fetchone()
-            if not already:
-                lang = _lang()
-                direction_label = _lmsg('label_break_out', lang) if punch_type == 'break_out' else _lmsg('label_break_in', lang)
-                with get_db() as _cfg_conn:
-                    _cfg = _cfg_conn.execute("SELECT driver_allowance_amount FROM punch_config WHERE id=1").fetchone()
-                _da_amt = int(float(_cfg['driver_allowance_amount'] or 125)) if _cfg else 125
-                msg = _flex_ask('司機補貼申請', '#1A6B3C',
-                    f'剛完成「{direction_label}」打卡，要申請司機補貼 ${_da_amt} 嗎？', '審核通過後加入當月薪資')
-                msg['quickReply'] = _qr_pb(
+                _cfg2 = _dconn.execute("SELECT driver_allowance_amount FROM punch_config WHERE id=1").fetchone()
+            if not _already:
+                _lang2 = _lang()
+                _dir_label = _lmsg('label_break_out', _lang2) if punch_type == 'break_out' else _lmsg('label_break_in', _lang2)
+                _da_amt = int(float(_cfg2['driver_allowance_amount'] or 125)) if _cfg2 else 125
+                _drv_msg = _flex_ask('司機補貼申請', '#1A6B3C',
+                    f'剛完成「{_dir_label}」打卡，要申請司機補貼 ${_da_amt} 嗎？', '審核通過後加入當月薪資')
+                _drv_msg['quickReply'] = _qr_pb(
                     (f'申請 ${_da_amt}', f'driver_allw_apply&punch_id={new_punch_id}', '申請司機補貼'),
                     ('不用了', f'driver_allw_skip', '不申請'),
                 )
-                _push_line_msg(user_id, msg)
+                _reply_msgs.append(_drv_msg)
         except Exception:
             pass
+
+    # 用 reply API（免費）一次送出所有訊息（最多 5 則）
+    _push_line_msg(user_id, *_reply_msgs[:5])
 
 
 def _calc_today_pay(staff):
@@ -6117,6 +6120,21 @@ def _auto_generate_salary(conn, staff, month, work_days=None, batch_ctx=None):
             return float(_overrides[key]), True   # (amount, is_overridden)
         return calculated_amt, False
 
+    # ── 司機補貼：本月已核准的 LINE 逐趟申請（先載入，供去重判斷）──────────────
+    # 規則：本月「有」逐趟申請核准 → 採逐趟金額；「沒有」→ 給固定津貼 125 當底，
+    # 兩者擇一，不重複給。
+    _drv_ms, _drv_me = _month_range(month)
+    if batch_ctx is not None:
+        _drv_pertrip_rows = batch_ctx.get('driver_allowances', {}).get(staff['id'], [])
+    else:
+        _drv_pertrip_rows = [dict(r) for r in conn.execute("""
+            SELECT id, amount, apply_date, direction
+            FROM driver_allowance_requests
+            WHERE staff_id=%s AND status='approved'
+              AND apply_date >= %s::date AND apply_date < %s::date
+        """, (staff['id'], _drv_ms, _drv_me)).fetchall()]
+    _has_pertrip_drv = len(_drv_pertrip_rows) > 0
+
     if salary_type == 'hourly':
         # 時薪制：第一筆項目是「本薪（工時計算）」
         items.append({
@@ -6271,6 +6289,9 @@ def _auto_generate_salary(conn, staff, month, work_days=None, batch_ctx=None):
             formula  = it['formula'] or ''
             _is_birthday_item = '生日' in (it['name'] or '')
             if _is_birthday_item and not is_birthday_month:
+                continue
+            # 司機補貼固定津貼：本月有逐趟申請核准則略過固定，改採逐趟（見下方），避免重複
+            if '司機補貼' in (it['name'] or '') and _has_pertrip_drv:
                 continue
             calc_amt = float(it['amount'] or 0)
             if formula:
@@ -6453,13 +6474,25 @@ def _auto_generate_salary(conn, staff, month, work_days=None, batch_ctx=None):
             })
             allowance_total += _drv_auto_total
 
-    # ── 司機補貼（申請核准） ─────────────────────────────────────
-    # 〔已停用〕司機補貼改為固定津貼（薪資項目「司機補貼」每月固定發放、免簽核），
-    # 不再把 LINE 申請核准的逐趟補貼計入薪資，避免與固定津貼重複計算。
+    # ── 司機補貼（LINE 逐趟申請核准）─────────────────────────────────
+    # 本月有逐趟申請核准 → 採逐趟金額（固定津貼已在上方略過，不重複給）
+    if _drv_pertrip_rows:
+        _drvr_total = sum(float(r['amount']) for r in _drv_pertrip_rows)
+        _drvr_cnt = len(_drv_pertrip_rows)
+        items.append({
+            'id': 'driver_allowance_requests',
+            'name': '司機補貼（申請）',
+            'type': 'allowance',
+            'amount': round(_drvr_total, 2),
+            'formula': '',
+            'calc_note': f'{_drvr_cnt}筆逐趟核准合計',
+        })
+        allowance_total += _drvr_total
 
     # ── 固定司機補貼（薪資項目）：日薪／時薪制也以固定金額發放 ─────────────────
     # 月薪制已在上方薪資項目迴圈處理；此處補上日薪／時薪制，使「每人每月固定」一致。
-    if salary_type in ('hourly', 'daily'):
+    # 本月有逐趟申請核准則略過（改採逐趟，避免重複）。
+    if salary_type in ('hourly', 'daily') and not _has_pertrip_drv:
         _staff_item_ids = staff.get('salary_item_ids')
         if batch_ctx is not None:
             _drv_items = [it for it in batch_ctx['salary_items']
