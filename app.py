@@ -6115,6 +6115,8 @@ def _auto_generate_salary(conn, staff, month, work_days=None, batch_ctx=None):
 
     # ── 組裝薪資項目 ────────────────────────────────────────
     items           = []
+    # 月薪制是否有納入「本薪」類項目；未納入時不做缺勤扣款，避免只扣不發變成負數
+    has_base_pay_item = (salary_type != 'monthly')
     allowance_total = 0.0   # (A) 法定應發工資（statutory allowance）
     deduction_total = 0.0   # (B) 法定代扣（statutory deduction）
     nonwage_total   = 0.0   # 第三區塊合計（非工資給付 - 民事約定代扣）
@@ -6325,6 +6327,10 @@ def _auto_generate_salary(conn, staff, month, work_days=None, batch_ctx=None):
                 # 第三區塊：加項計正、扣項計負，最後加回最終轉帳，不影響 (A)/(B)
                 nonwage_total += amt if it['item_type'] == 'allowance' else -amt
             elif it['item_type'] == 'allowance':
+                # 需實際算出金額才算數：沒勾本薪、底薪欄位空白、個人金額覆寫成 0
+                # 三種情況都視為「沒有底薪可發」，不做缺勤／請假扣款
+                if amt > 0 and ('本薪' in (it['name'] or '') or 'base_salary' in formula):
+                    has_base_pay_item = True
                 allowance_total += amt
             else:
                 deduction_total += amt
@@ -6341,7 +6347,7 @@ def _auto_generate_salary(conn, staff, month, work_days=None, batch_ctx=None):
     # ── 請假扣款（月薪制） / 請假薪資補加（日薪制、時薪制）─────────────
     # 月薪制：底薪固定，請假才扣；日薪/時薪制：底薪按打卡計算，請假日沒打卡即無薪，
     # 有薪假應補加薪資而非扣款（否則會雙重扣）。
-    if salary_type == 'monthly':
+    if salary_type == 'monthly' and has_base_pay_item:
         if unpaid_days > 0 and daily_wage > 0:
             leave_names = '、'.join(set(
                 r['leave_name'] for r in leave_rows if float(r['pay_rate']) == 0
@@ -6364,7 +6370,7 @@ def _auto_generate_salary(conn, staff, month, work_days=None, batch_ctx=None):
                     'calc_note': f'{_hdays}天 × 日薪${round(daily_wage, 0)} × {_dr}',
                 })
                 deduction_total += deduct
-    else:
+    elif salary_type != 'monthly':
         # 日薪制 / 時薪制：有薪假補加，無薪假不扣（底薪已按打卡天數/工時計算，請假日本無薪）
         _full_leave_days = leave_days - unpaid_days - sum(d for d, _, _ in _half_entries)
         if _full_leave_days > 0 and daily_wage > 0:
@@ -6389,7 +6395,7 @@ def _auto_generate_salary(conn, staff, month, work_days=None, batch_ctx=None):
 
     # ── 月薪制：缺勤扣款（打卡記錄核查） ─────────────────────
     absent_days = 0
-    if salary_type == 'monthly' and scheduled_dates and daily_wage > 0:
+    if salary_type == 'monthly' and scheduled_dates and daily_wage > 0 and has_base_pay_item:
         if batch_ctx is not None:
             punched_dates = batch_ctx['punch_dates'].get(staff['id'], set())
             leave_date_set = batch_ctx['leave_date_sets'].get(staff['id'], set())
@@ -6555,6 +6561,14 @@ def _auto_generate_salary(conn, staff, month, work_days=None, batch_ctx=None):
     # 最終銀行轉帳 = (A) - (B) + 第三區塊合計
     net_pay = round(allowance_total - deduction_total + nonwage_total, 2)
 
+    # ── 設定異常提醒 ────────────────────────────────────────
+    warnings = []
+    if not has_base_pay_item:
+        warnings.append('本薪為 0（未勾選本薪項目、底薪未填、或個人金額設為 0），'
+                        '底薪未計入應發，已略過缺勤與請假扣款')
+    if net_pay < 0:
+        warnings.append('實領金額為負數，請檢查薪資項目設定')
+
     return {
         'staff_id':           staff['id'],
         'month':              month,
@@ -6574,6 +6588,7 @@ def _auto_generate_salary(conn, staff, month, work_days=None, batch_ctx=None):
         'allowance_total':    round(allowance_total, 2),
         'deduction_total':    round(deduction_total, 2),
         'net_pay':            net_pay,
+        'warnings':           warnings,
         'items':              items,
         'punch_details':      punch_details,   # 時薪制：每日打卡明細
         'status':             'draft',
