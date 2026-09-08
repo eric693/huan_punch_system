@@ -6199,7 +6199,7 @@ def _auto_generate_salary(conn, staff, month, work_days=None, batch_ctx=None):
                 SELECT * FROM salary_items
                 WHERE active=TRUE AND id IN ({placeholders})
                   AND item_type='deduction'
-                  AND (formula LIKE '%insured_salary%' OR formula LIKE '%base_salary%')
+                  AND (formula LIKE '%%insured_salary%%' OR formula LIKE '%%base_salary%%')
                 ORDER BY sort_order, id
             """, staff_item_ids).fetchall()
         else:
@@ -6255,7 +6255,7 @@ def _auto_generate_salary(conn, staff, month, work_days=None, batch_ctx=None):
                 SELECT * FROM salary_items
                 WHERE active=TRUE AND id IN ({placeholders})
                   AND item_type='deduction'
-                  AND (formula LIKE '%insured_salary%' OR formula LIKE '%base_salary%')
+                  AND (formula LIKE '%%insured_salary%%' OR formula LIKE '%%base_salary%%')
                 ORDER BY sort_order, id
             """, staff_item_ids).fetchall()
         else:
@@ -6395,7 +6395,7 @@ def _auto_generate_salary(conn, staff, month, work_days=None, batch_ctx=None):
 
     # ── 月薪制：缺勤扣款（打卡記錄核查） ─────────────────────
     absent_days = 0
-    if salary_type == 'monthly' and scheduled_dates and daily_wage > 0 and has_base_pay_item:
+    if salary_type == 'monthly' and scheduled_dates and daily_wage > 0:
         if batch_ctx is not None:
             punched_dates = batch_ctx['punch_dates'].get(staff['id'], set())
             leave_date_set = batch_ctx['leave_date_sets'].get(staff['id'], set())
@@ -6440,7 +6440,8 @@ def _auto_generate_salary(conn, staff, month, work_days=None, batch_ctx=None):
                and _d5.fromisoformat(ds) <= _absent_cutoff
         )
         absent_days = len(absent_date_list)
-        if absent_days > 0:
+        # 沒有底薪可發時仍統計缺勤天數（出勤欄位才正確），但不扣款
+        if absent_days > 0 and has_base_pay_item:
             deduct = round(daily_wage * absent_days, 2)
             sample = '、'.join(absent_date_list[:3]) + ('等' if absent_days > 3 else '')
             items.append({
