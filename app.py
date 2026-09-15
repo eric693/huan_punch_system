@@ -8341,6 +8341,94 @@ def api_punch_req_review_v2(rid):
     return jsonify(punch_req_row(row))
 
 
+@app.route('/api/punch/requests/<int:rid>/revoke', methods=['POST'])
+@login_required
+def api_punch_req_revoke(rid):
+    """撤銷已核准的補打卡申請：軟刪除核准時產生的打卡紀錄，並把申請退回 pending/rejected。"""
+    b          = request.get_json(force=True, silent=True) or {}
+    revoked_by = (b.get('revoked_by') or '').strip()
+    reason     = (b.get('reason') or '').strip()
+    to_status  = b.get('to_status', 'pending')
+    if to_status not in ('pending', 'rejected'):
+        return jsonify({'error': 'invalid to_status'}), 400
+    if not revoked_by:
+        return jsonify({'error': '請填寫撤銷人'}), 400
+
+    with get_db() as conn:
+        req = conn.execute("SELECT * FROM punch_requests WHERE id=%s", (rid,)).fetchone()
+        if not req:
+            return ('', 404)
+        if req['status'] != 'approved':
+            return jsonify({'error': '只有已核准的申請可以撤銷'}), 409
+
+        # 找出核准時寫入的打卡紀錄：先比對備註中的申請編號，找不到再用「同員工/類型/時間的手動打卡」比對
+        recs = conn.execute("""
+            SELECT * FROM punch_records
+            WHERE staff_id=%s AND deleted_at IS NULL
+              AND (note LIKE %s OR note LIKE %s)
+        """, (req['staff_id'], f'補打卡申請 #{rid}：%', f'補打卡申請#{rid}')).fetchall()
+        if not recs:
+            # 舊資料備註格式可能不同；限定為「由補打卡申請產生」的手動打卡，避免誤刪管理員自行補的紀錄
+            recs = conn.execute("""
+                SELECT * FROM punch_records
+                WHERE staff_id=%s AND punch_type=%s AND punched_at=%s
+                  AND is_manual IS TRUE AND deleted_at IS NULL
+                  AND note LIKE %s
+            """, (req['staff_id'], req['punch_type'], req['requested_at'],
+                  '補打卡申請%')).fetchall()
+            if len(recs) > 1:
+                return jsonify({'error': f'找到 {len(recs)} 筆時間相同的補打卡紀錄，'
+                                         f'無法判斷對應哪一筆，請至打卡紀錄手動處理'}), 409
+
+        removed = []
+        for old in recs:
+            conn.execute("UPDATE punch_records SET deleted_at=NOW(), deleted_by=%s WHERE id=%s",
+                         (revoked_by, old['id']))
+            conn.execute("""
+                INSERT INTO punch_audit_log (record_id, action, staff_id, changed_by, old_data, note)
+                VALUES (%s,'delete',%s,%s,%s,%s)
+            """, (old['id'], old['staff_id'], revoked_by,
+                  _json.dumps({'punch_type': old['punch_type'],
+                               'punched_at': old['punched_at'].isoformat() if old['punched_at'] else None,
+                               'note': old['note']}),
+                  f'撤銷補打卡申請 #{rid}' + (f'：{reason}' if reason else '')))
+            # 該月薪資若已確認，重設為草稿以反映打卡變動
+            if old['punched_at']:
+                conn.execute("""
+                    UPDATE salary_records SET status='draft', updated_at=NOW()
+                    WHERE staff_id=%s AND month=%s AND status='confirmed'
+                """, (old['staff_id'], old['punched_at'].strftime('%Y-%m')))
+            removed.append(old['id'])
+
+        # 保留原審核人，讓申請單上仍看得到是誰核准的；撤銷資訊附在審核意見
+        note_parts = [f'原由 {req["reviewed_by"] or "（未填）"} 核准，'
+                      f'經 {revoked_by} 撤銷']
+        if reason: note_parts.append(f'原因：{reason}')
+        if req['review_note']: note_parts.append(f'原審核意見：{req["review_note"]}')
+        row = conn.execute("""
+            UPDATE punch_requests
+            SET status=%s, reviewed_at=NULL, review_note=%s
+            WHERE id=%s
+            RETURNING *, (SELECT name FROM punch_staff WHERE id=staff_id) as staff_name
+        """, (to_status, '｜'.join(note_parts), rid)).fetchone()
+
+    _sys_audit('punch', 'revoke_approval', 'punch_request', rid,
+               old_data={'status': 'approved', 'reviewed_by': req['reviewed_by']},
+               new_data={'status': to_status, 'removed_record_ids': removed},
+               note=reason)
+
+    LABEL  = {'in': '上班打卡', 'out': '下班打卡', 'break_out': '休息開始', 'break_in': '休息結束'}
+    dt_str = req['requested_at'].isoformat()[:16].replace('T', ' ') if req['requested_at'] else ''
+    msg = (f"[撤銷] 補打卡申請核准撤銷\n{LABEL.get(req['punch_type'],'')} {dt_str}"
+           f"\n該筆打卡紀錄已移除，申請狀態改為"
+           f"{'已退回' if to_status == 'rejected' else '待審核'}。")
+    if reason: msg += f"\n原因：{reason}"
+    _notify_staff_line(req['staff_id'], msg + "\n\n請至員工系統查看詳情。")
+
+    return jsonify({'ok': True, 'revoked': rid, 'removed_records': removed,
+                    'request': punch_req_row(row)})
+
+
 # ═══════════════════════════════════════════════════════════════════
 # Dashboard API
 # ═══════════════════════════════════════════════════════════════════

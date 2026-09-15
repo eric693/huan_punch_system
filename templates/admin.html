@@ -14258,7 +14258,8 @@ function renderPunchRequests() {
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <span style="font-size:12px;font-weight:700;color:${PREQ_COLOR[r.status]||'var(--muted)'}">${PREQ_LABEL[r.status]||r.status}</span>
           ${isPending ? `<button class="btn btn-primary btn-sm" onclick="openPreqModal(${r.id})">審核</button>` : ''}
-          <button class="btn btn-danger btn-sm" onclick="deletePunchReq(${r.id})">刪除</button>
+          ${r.status==='approved' ? `<button class="btn btn-outline btn-sm" onclick="revokePunchReq(${r.id})">撤銷核准</button>` : ''}
+          ${r.status==='approved' ? '' : `<button class="btn btn-danger btn-sm" onclick="deletePunchReq(${r.id})">刪除</button>`}
         </div>
       </div>
       <div class="req-body">
@@ -14292,6 +14293,18 @@ async function reviewPunchReq(action) {
   const { ok } = await api(`/api/punch/requests/${id}`, apiPUT({ action, reviewed_by: by, review_note: note }));
   if (!ok) return;
   closePreqModal(); showToast(action==='approve' ? t('preq.approved') : t('preq.rejected'), 'success'); await loadPunchRequests();
+}
+async function revokePunchReq(id) {
+  const r = punchReqList.find(x => x.id === id); if (!r) return;
+  const by = prompt('撤銷核准會一併刪除該筆打卡紀錄，並把申請退回待審核。\n請輸入撤銷人姓名：', '');
+  if (by === null) return;
+  if (!by.trim()) { showToast('請填寫撤銷人', 'error'); return; }
+  const reason = prompt('撤銷原因（可留空）：', '') || '';
+  const { ok, data } = await api(`/api/punch/requests/${id}/revoke`,
+    apiJSON({ revoked_by: by.trim(), reason: reason.trim(), to_status: 'pending' }));
+  if (!ok) return;
+  showToast(`已撤銷核准，移除 ${((data&&data.removed_records)||[]).length} 筆打卡紀錄`, 'success');
+  await loadPunchRequests();
 }
 async function deletePunchReq(id) {
   if (!confirm(t('preq.confirm_delete'))) return;
