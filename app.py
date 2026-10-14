@@ -618,7 +618,8 @@ def _annual_leave_sync_loop():
         _run_annual_leave_sync()
 
 
-threading.Thread(target=_annual_leave_sync_loop, daemon=True).start()
+# 注意：執行緒啟動放在檔案最末端。這裡是模組載入初期，_calc_annual_leave_days
+# 尚未定義，若在此啟動，首次同步必定 NameError。
 
 
 # ─── Health ───────────────────────────────────────────────────────────────────
@@ -5768,6 +5769,17 @@ def init_salary_config_db():
                     updated_at  TIMESTAMPTZ DEFAULT NOW()
                 )
             """)
+            # 舊版資料表只有 settlement_day / pay_day，缺 payroll_day 會讓整段初始化失敗
+            conn.execute("ALTER TABLE salary_config ADD COLUMN IF NOT EXISTS payroll_day INT DEFAULT 5")
+            conn.execute("ALTER TABLE salary_config ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
+            has_pay_day = conn.execute("""
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name='salary_config' AND column_name='pay_day'
+            """).fetchone()
+            if has_pay_day:
+                # 沿用舊欄位已設定的發薪日，避免升級後被重設為預設值
+                conn.execute("UPDATE salary_config SET payroll_day=pay_day "
+                             "WHERE payroll_day IS NULL AND pay_day IS NOT NULL")
             conn.execute("""
                 INSERT INTO salary_config (id, payroll_day)
                 VALUES (1, 5) ON CONFLICT (id) DO NOTHING
@@ -7398,10 +7410,11 @@ def api_salary_settings_put():
     if payroll_day < 1 or payroll_day > 28:
         return jsonify({'error': '結算日必須介於 1~28'}), 400
     with get_db() as conn:
-        conn.execute(
-            "UPDATE salary_config SET payroll_day=%s, updated_at=NOW() WHERE id=1",
-            (payroll_day,)
-        )
+        conn.execute("""
+            INSERT INTO salary_config (id, payroll_day, updated_at)
+            VALUES (1, %s, NOW())
+            ON CONFLICT (id) DO UPDATE SET payroll_day=EXCLUDED.payroll_day, updated_at=NOW()
+        """, (payroll_day,))
     return jsonify({'ok': True, 'payroll_day': payroll_day})
 
 @app.route('/api/salary/payroll-check', methods=['GET'])
@@ -23287,3 +23300,7 @@ def api_export_labor_pension():
     fname = f'labor_pension_{year}{("_"+month[5:7]) if month else ""}.xlsx'
     return send_file(buf, as_attachment=True, download_name=fname,
                      mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
+# ─── 背景執行緒啟動（必須放在所有函式定義之後）─────────────────────────────────
+threading.Thread(target=_annual_leave_sync_loop, daemon=True).start()
