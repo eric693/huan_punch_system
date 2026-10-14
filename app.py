@@ -4394,8 +4394,8 @@ def _calc_ot_pay(staff_row, ot_hours, day_type='weekday'):
     elif day_type == 'special':
         pay = round(base_hourly * h * ot_rate_special, 0)
     elif day_type == 'rest_day':
-        billed = max(h, 4.0)
-        h1  = min(billed, 2.0); h2  = max(0.0, billed - 2.0)
+        # 休息日倍率與平日相同；2018-03-01 修法後已取消「做1給4」的擬制工時，核實計算
+        h1  = min(h, 2.0); h2  = max(0.0, h - 2.0)
         pay = round(base_hourly * (h1 * ot_rate1 + h2 * ot_rate2), 0)
     else:
         h1  = min(h, 2.0); h2  = max(0.0, h - 2.0)
@@ -4598,7 +4598,7 @@ def api_ot_calc_preview():
     ot_pay, base_hourly = _calc_ot_pay(staff, ot_hours, day_type)
 
     if day_type == 'rest_day':
-        billed = max(ot_hours, 4.0); h1 = min(billed, 2.0); h2 = max(0.0, billed - 2.0)
+        h1 = min(ot_hours, 2.0); h2 = max(0.0, ot_hours - 2.0)
     elif day_type in ('holiday', 'special'):
         h1 = ot_hours; h2 = 0.0
     else:
@@ -20840,11 +20840,8 @@ def _ot_tier_breakdown(conn, staff_id, month, rates, total_ot_pay):
         elif dt == 'special':
             _add('special', f'例假日加班（{_rate_fmt(rs)}倍）', h, h * rs)
         else:
-            if dt == 'rest_day':
-                billed = max(h, 4.0); pfx = '休息日加班'
-            else:
-                billed = h; pfx = '平日加班'
-            h1 = min(billed, 2.0); h2 = max(0.0, billed - 2.0)
+            pfx = '休息日加班' if dt == 'rest_day' else '平日加班'
+            h1 = min(h, 2.0); h2 = max(0.0, h - 2.0)
             if h1 > 0: _add(pfx + '1', f'{pfx}（前2小時·{_rate_fmt(r1)}倍）', h1, h1 * r1)
             if h2 > 0: _add(pfx + '2', f'{pfx}（第3小時起·{_rate_fmt(r2)}倍）', h2, h2 * r2)
     vals = list(buckets.values())
